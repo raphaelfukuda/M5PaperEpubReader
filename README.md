@@ -25,11 +25,14 @@ Requirements: original M5Paper, FAT32 microSD, USB cable, Python 3 and
 [PlatformIO Core](https://platformio.org/install/cli).
 
 ```powershell
-git clone https://github.com/OWNER/M5PaperEpubReader.git
+# Clone or download this repository, then enter its directory:
 cd M5PaperEpubReader
+python -m pip install -r requirements-dev.txt
 pio run -e m5stack-paper
 pio run -e m5stack-paper --target upload --upload-port COM8
 ```
+
+Replace `COM8` with the serial port shown by `pio device list`.
 
 Place `.epub` files in `/Books` on the microSD card. If that directory does not
 exist, the browser starts at the card root. Open the reading menu by tapping the
@@ -47,6 +50,7 @@ inline image rendering and the full CSS cascade are not claimed as supported.
 ## Development
 
 ```powershell
+python -m pip install -r requirements-dev.txt
 pio test -e native
 pio run -e m5stack-paper
 ```
