@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible firmware problem
+title: "[Bug]: "
+body:
+  - type: checkboxes
+    attributes:
+      label: Hardware
+      options:
+        - label: I am using the original ESP32 M5Paper, not PaperS3.
+          required: true
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include exact steps, expected result and actual result.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment and logs
+      description: Firmware commit, microSD details, EPUB type and serial log.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Minimal fixture
+      description: Attach only content you are legally allowed to redistribute.
