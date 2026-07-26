@@ -58,8 +58,9 @@ pio run -e m5stack-paper
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/architecture.md](docs/architecture.md)
-and [docs/hardware-test-plan.md](docs/hardware-test-plan.md). Hardware-dependent
-tests must be performed on the original M5Paper.
+and [docs/hardware-test-plan.md](docs/hardware-test-plan.md). Planned features
+and known bugs are tracked in [docs/roadmap.md](docs/roadmap.md).
+Hardware-dependent tests must be performed on the original M5Paper.
 
 ## Português
 
