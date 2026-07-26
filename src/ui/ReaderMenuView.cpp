@@ -12,6 +12,7 @@ constexpr int32_t kButtonHeight = 82;
 constexpr int32_t kRestartButtonTop = 205;
 constexpr int32_t kTocButtonTop = 305;
 constexpr int32_t kLanguageButtonTop = 405;
+constexpr int32_t kSleepButtonTop = 505;
 constexpr int32_t kCloseButtonBottomMargin = 35;
 constexpr int32_t kTocHeaderBottom = 95;
 constexpr int32_t kTocRowHeight = 82;
@@ -66,10 +67,16 @@ void ReaderMenuView::render(const EpubBook& book, const PageAnchor& anchor,
   drawCentered(canvas, languageLabel, display_.width() / 2,
                kLanguageButtonTop + kButtonHeight / 2 - canvas.fontHeight() / 2);
 
+  canvas.drawRect(kHorizontalMargin, kSleepButtonTop,
+                  display_.width() - 2 * kHorizontalMargin, kButtonHeight,
+                  TFT_BLACK);
+  drawCentered(canvas, text.sleepNow, display_.width() / 2,
+               kSleepButtonTop + kButtonHeight / 2 - canvas.fontHeight() / 2);
+
   canvas.setTextDatum(top_left);
   char zoom[40];
   snprintf(zoom, sizeof(zoom), "%s: %u px", text.zoom, static_cast<unsigned>(fontSize));
-  canvas.drawString(zoom, kHorizontalMargin, 510);
+  canvas.drawString(zoom, kHorizontalMargin, 610);
 
   const uint32_t chapterCount = static_cast<uint32_t>(book.spine.size());
   const uint32_t chapter = chapterCount == 0
@@ -82,7 +89,7 @@ void ReaderMenuView::render(const EpubBook& book, const PageAnchor& anchor,
            static_cast<unsigned long>(chapterCount),
            text.page,
            static_cast<unsigned long>(pageNumber));
-  portuguese_text::draw(canvas, position, kHorizontalMargin, 565);
+  portuguese_text::draw(canvas, position, kHorizontalMargin, 655);
 
   uint32_t progress = 0;
   if (book.totalLinearBytes != 0 && anchor.spineIndex < book.spine.size()) {
@@ -96,8 +103,8 @@ void ReaderMenuView::render(const EpubBook& book, const PageAnchor& anchor,
   char progressLabel[48];
   snprintf(progressLabel, sizeof(progressLabel), "%s: %lu%%", text.approximateProgress,
            static_cast<unsigned long>(progress));
-  portuguese_text::draw(canvas, progressLabel, kHorizontalMargin, 625);
-  const int32_t barTop = 675;
+  portuguese_text::draw(canvas, progressLabel, kHorizontalMargin, 700);
+  const int32_t barTop = 750;
   const int32_t barWidth = display_.width() - 2 * kHorizontalMargin;
   canvas.drawRect(kHorizontalMargin, barTop, barWidth, 24, TFT_BLACK);
   if (progress != 0) {
@@ -222,6 +229,8 @@ ReaderMenuAction ReaderMenuView::actionAt(int32_t x, int32_t y) const {
     return ReaderMenuAction::OpenTableOfContents;
   if (y >= kLanguageButtonTop && y < kLanguageButtonTop + kButtonHeight)
     return ReaderMenuAction::ToggleLanguage;
+  if (y >= kSleepButtonTop && y < kSleepButtonTop + kButtonHeight)
+    return ReaderMenuAction::EnterSleep;
   const int32_t closeTop = display_.height() - kCloseButtonBottomMargin -
                            kButtonHeight;
   if (y >= closeTop && y < closeTop + kButtonHeight)

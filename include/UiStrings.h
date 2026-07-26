@@ -28,6 +28,9 @@ struct Text {
   const char* language;
   const char* invalidEpub;
   const char* touchToReturn;
+  const char* sleepNow;
+  const char* sleepMode;
+  const char* wakeWithLever;
 };
 
 const Text& get();

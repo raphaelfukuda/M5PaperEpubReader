@@ -20,6 +20,7 @@ class DisplayManager {
   const DisplayRefreshMetrics& refreshMetrics() const { return refreshMetrics_; }
 
  private:
+  void drawBatteryIndicator();
   void setRefreshIntent(RefreshIntent intent);
   SpiBusGuard& busGuard_;
   M5Canvas canvas_{&M5.Display};

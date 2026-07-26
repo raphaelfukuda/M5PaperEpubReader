@@ -20,6 +20,8 @@ O produto final será um leitor textual EPUB 2/3 incremental para M5Paper origin
 | Paginação contínua e cache limitado | 5 | Implementado |
 | Zoom com preservação da âncora | 5 | Implementado e validado no aparelho |
 | Persistência e retomada | 6 | Implementado; teste de corte de energia pendente |
+| Espera após 10 min/menu e retomada pela alavanca | transversal | Implementada com light sleep; consumo e wake-up pendentes no aparelho |
+| Indicador de bateria por troca de tela | transversal | Implementado; precisão visual pendente no aparelho |
 | Menu e progresso aproximado | 7 | Implementado; validação física pendente |
 | Sumário EPUB 2/3 | 8 | Parser e navegação por capítulo integrados; fragmentos exatos pendentes |
 | UI inglês/português | transversal | Implementada; inglês padrão e seleção persistida em NVS |

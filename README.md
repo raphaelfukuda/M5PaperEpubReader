@@ -15,6 +15,8 @@ the last stable reading position.
 - continuous pagination, bounded page cache and checkpoint reconstruction;
 - font sizes of 16, 24, 32, 36 and 40 px with anchored reflow;
 - persistent reading position, font preference and safe “restart book” action;
+- automatic or menu-activated low-power sleep with reading-position resume;
+- battery level in the top-right corner, sampled only during screen changes;
 - English and Brazilian Portuguese interface, with English as the default;
 - deliberate E-Ink refresh modes and serialized display/microSD SPI access;
 - Wi-Fi and Bluetooth disabled by design.

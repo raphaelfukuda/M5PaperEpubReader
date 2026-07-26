@@ -12,7 +12,8 @@ const Text english = {
     "Close menu", "Zoom", "Chapter", "Approximate progress",
     "Restart reading?", "The saved position will be erased.",
     "Yes, return to the beginning", "Cancel", "Language", "Invalid EPUB",
-    "Tap to return"};
+    "Tap to return", "Enter sleep mode", "Sleep Mode",
+    "Use the font lever to wake"};
 
 const Text portuguese = {
     "Biblioteca", "Lendo diretorio...", "Nenhuma pasta ou EPUB encontrado",
@@ -22,7 +23,8 @@ const Text portuguese = {
     "Fechar menu", "Zoom", "Capitulo", "Progresso aproximado",
     "Reiniciar leitura?", "A posicao salva sera apagada.",
     "Sim, voltar ao inicio", "Cancelar", "Idioma", "EPUB invalido",
-    "Toque para voltar"};
+    "Toque para voltar", "Entrar em modo de espera",
+    "Modo de espera (Sleep Mode)", "Use a alavanca de fonte para acordar"};
 }  // namespace
 
 const Text& get() { return currentLanguage == UiLanguage::Portuguese ? portuguese : english; }

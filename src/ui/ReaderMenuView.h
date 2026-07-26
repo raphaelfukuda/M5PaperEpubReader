@@ -14,6 +14,7 @@ enum class ReaderMenuAction {
   TocBack,
   RestartBook,
   ToggleLanguage,
+  EnterSleep,
   ConfirmRestart,
   CancelRestart,
   Close

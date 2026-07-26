@@ -48,5 +48,27 @@ Passa quando identifica `board_M5Paper`, mostra 540×960, encontra PSRAM/touch, 
 10. Em EPUB 2 e EPUB 3, abra o sumário, percorra suas páginas e selecione
     capítulos próximos do início, meio e fim.
 
+## Espera e bateria
+
+1. Abra um trecho reconhecível de um EPUB e anote conteúdo, zoom e percentual
+   de bateria. Abra o menu, escolha a espera e confirme o aviso localizado.
+2. Acione apenas o lado de aumentar fonte. O aparelho deve acordar, redesenhar
+   o mesmo trecho e manter o zoom anterior.
+3. Repita usando apenas o lado de diminuir fonte. O acionamento de wake-up não
+   pode mudar o zoom.
+4. Deixe o aparelho sem toque nem alavanca por dez minutos. Confirme entrada
+   automática na espera e repetição correta do passo 2 ou 3.
+5. Durante os dez minutos, interaja perto do limite primeiro por toque e depois
+   pela alavanca. Cada interação deve reiniciar integralmente o temporizador.
+6. Entre em espera a partir da biblioteca. Ao acordar, deve retornar à
+   biblioteca, sem abrir indevidamente o último livro.
+7. Confira o indicador no canto superior direito na biblioteca, leitura, menu e
+   sumário. Ele não pode encobrir o título e deve ficar entre 0 e 100%.
+8. Deixe a tela parada e varie alimentação/carga: não deve ocorrer refresh só
+   por mudança da bateria. Troque de tela e confirme então a nova amostragem.
+9. Meça a corrente antes e durante a espera, com USB desconectado, e registre
+   placa, tensão, cartão e instrumento. Light sleep é usado porque deep sleep
+   do ESP32 original não acorda por qualquer um de dois GPIOs ativos em baixo.
+
 Sumário, links/notas, imagens e CSS ainda não têm fluxo visual completo e não
 devem ser aprovados apenas porque seus parsers puros existem.

@@ -45,6 +45,7 @@ class AppController {
   bool readingStateDirty_ = false;
   uint32_t lastYieldMs_ = 0;
   uint32_t lastLeverActionMs_ = 0;
+  uint32_t lastInteractionMs_ = 0;
   uint32_t bookOpenStartedMs_ = 0;
   uint32_t pageTurnStartedMs_ = 0;
   bool measuringBookOpen_ = false;
@@ -57,6 +58,8 @@ class AppController {
   void handleReaderEvent(const AppEvent& event);
   void handleReaderMenuEvent(const AppEvent& event);
   void handleReaderLever();
+  bool canEnterAutomaticSleep() const;
+  void enterSleepMode();
   bool startReaderWithSavedState();
   void markReadingStateDirty();
   void persistReadingState();

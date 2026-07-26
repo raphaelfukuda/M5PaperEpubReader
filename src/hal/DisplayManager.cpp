@@ -2,6 +2,29 @@
 
 #include "AppConfig.h"
 
+void DisplayManager::drawBatteryIndicator() {
+  const int32_t level = M5.Power.getBatteryLevel();
+  if (level < 0) return;
+  const int32_t right = width() - 18;
+  const int32_t top = 14;
+  const int32_t iconWidth = 28;
+  const int32_t iconHeight = 14;
+  const int32_t iconLeft = right - iconWidth;
+  canvas_.fillRect(right - app_config::kBatteryIndicatorWidth, 8,
+                   app_config::kBatteryIndicatorWidth, 34, TFT_WHITE);
+  canvas_.drawRect(iconLeft, top, iconWidth - 3, iconHeight, TFT_BLACK);
+  canvas_.fillRect(right - 3, top + 4, 3, 6, TFT_BLACK);
+  const int32_t fill = ((iconWidth - 7) * min<int32_t>(100, level)) / 100;
+  if (fill > 0) canvas_.fillRect(iconLeft + 2, top + 2, fill, iconHeight - 4, TFT_BLACK);
+  char label[8];
+  snprintf(label, sizeof(label), "%ld%%", static_cast<long>(level));
+  canvas_.setFont(&fonts::Font0);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(TFT_BLACK, TFT_WHITE);
+  canvas_.setTextDatum(top_right);
+  canvas_.drawString(label, iconLeft - 5, top + 1);
+}
+
 bool DisplayManager::begin() {
   M5.Display.setRotation(app_config::kPortraitRotation);
   canvas_.setColorDepth(1);
@@ -43,6 +66,7 @@ void DisplayManager::waitUntilIdle() {
 
 bool DisplayManager::submitFull(RefreshIntent intent) {
   if (!canvasReady_) return false;
+  drawBatteryIndicator();
   ScopedSpiBus bus(busGuard_, SpiBusOwner::Display);
   if (!bus) return false;
   M5.Display.waitDisplay();

@@ -37,11 +37,15 @@ void AppController::begin() {
   } else {
     state_ = AppState::SdError;
   }
+  lastInteractionMs_ = millis();
 }
 
 void AppController::tick() {
   M5.update();
   const AppEvent event = touch_.poll();
+  const bool leverInteraction = M5.BtnA.wasPressed() || M5.BtnC.wasPressed();
+  if (event.type != AppEventType::None || leverInteraction)
+    lastInteractionMs_ = millis();
   if (state_ == AppState::Reading) handleReaderLever();
   if (state_ == AppState::FileBrowser) handleBrowserEvent(event);
   else if (state_ == AppState::Reading) handleReaderEvent(event);
@@ -98,6 +102,10 @@ void AppController::tick() {
     browserDirty_ = false;
   }
   const uint32_t now = millis();
+  if (now - lastInteractionMs_ >= app_config::kSleepAfterInactivityMs &&
+      canEnterAutomaticSleep()) {
+    enterSleepMode();
+  }
   if (now - lastYieldMs_ >= app_config::kIdleYieldIntervalMs) {
     lastYieldMs_ = now;
     yield();
@@ -230,6 +238,8 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
     readerMenuView_.render(reader_.book(), reader_.currentAnchor(),
                            reader_.pageNumber(), reader_.fontSize());
     Serial.printf("UI language: %s\n", ui_strings::languageName());
+  } else if (action == ReaderMenuAction::EnterSleep) {
+    enterSleepMode();
   } else if (action == ReaderMenuAction::CancelRestart) {
     readerMenuView_.render(reader_.book(), reader_.currentAnchor(),
                            reader_.pageNumber(), reader_.fontSize());
@@ -263,6 +273,53 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
     state_ = AppState::Reading;
     Serial.println("Reader menu closed");
   }
+}
+
+bool AppController::canEnterAutomaticSleep() const {
+  if (M5.Display.displayBusy() || scanner_.isRunning() || reader_.isPrefetching())
+    return false;
+  return state_ == AppState::FileBrowser || state_ == AppState::Reading ||
+         state_ == AppState::ReaderMenu;
+}
+
+void AppController::enterSleepMode() {
+  if (M5.Display.displayBusy()) return;
+  const bool resumeReading = state_ == AppState::Reading ||
+                             state_ == AppState::ReaderMenu;
+  if (resumeReading) {
+    markReadingStateDirty();
+    persistReadingState();
+  }
+  M5Canvas& canvas = display_.canvas();
+  canvas.fillScreen(TFT_WHITE);
+  canvas.setTextColor(TFT_BLACK, TFT_WHITE);
+  canvas.setFont(&fonts::Font2);
+  canvas.setTextSize(2);
+  canvas.setTextDatum(middle_center);
+  canvas.drawString(ui_strings::get().sleepMode, display_.width() / 2,
+                    display_.height() / 2 - 45);
+  canvas.setFont(&fonts::Font0);
+  canvas.setTextSize(1);
+  canvas.drawString(ui_strings::get().wakeWithLever, display_.width() / 2,
+                    display_.height() / 2 + 35);
+  display_.submitFull(RefreshIntent::FullQuality);
+  display_.waitUntilIdle();
+  state_ = AppState::Sleeping;
+  Serial.printf("Entering low-power sleep; resume=%s\n", resumeReading ? "yes" : "no");
+  Serial.flush();
+  power_.enterLowPowerSleep();
+  lastInteractionMs_ = millis();
+  M5.update();
+  if (resumeReading && reader_.redrawCurrentPage()) {
+    readerView_.renderPageChrome(reader_.book(), reader_.pageNumber());
+    state_ = AppState::Reading;
+  } else {
+    state_ = AppState::FileBrowser;
+    browserView_.setModel(currentPath_, &scanner_.entries(), false,
+                          scanner_.wasTruncated(), scanner_.error());
+    browserDirty_ = true;
+  }
+  Serial.println("Woke from low-power sleep");
 }
 
 bool AppController::startReaderWithSavedState() {
