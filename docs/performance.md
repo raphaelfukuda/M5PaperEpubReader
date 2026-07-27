@@ -45,6 +45,20 @@ abertura de EPUB, troca de página, reflow, reconstrução de cache ou autonomia
 
 Não inferir autonomia ou estabilidade apenas a partir do uso estático de flash/RAM.
 
+## Validação física de 2026-07-27
+
+O firmware foi compilado, enviado e exercitado no M5Paper original. O usuário
+validou navegação, retomada, sleep/wake, biblioteca e responsividade percebida.
+A melhoria de refresh combina `epd_fast` na leitura normal, `epd_fastest` em
+bursts, double buffering, submissão parcial e limpeza `epd_quality`. Após
+ghosting visível, os limites foram reduzidos para 5 Fast, 2 Fastest, 6
+atualizações de leitura ou 5 minutos.
+
+O build final desta rodada usa 101.860 bytes de RAM estática (2,3%) e 2.359.125
+bytes de flash (36,0%). A biblioteca extrai apenas metadados/capa das quatro
+entradas visíveis e faz um único refresh de qualidade ao concluir. Qualidade e
+autonomia ainda podem variar entre painéis, cartões e baterias.
+
 ## Fase 1 — instrumentação de refresh
 
 Concluída em 2026-07-26. O firmware agora separa reconhecimento do evento,

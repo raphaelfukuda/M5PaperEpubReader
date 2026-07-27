@@ -6,6 +6,7 @@
 #include "EpubTableOfContents.h"
 struct EpubBook {
   std::string filePath, packagePath, title, author, language;
+  std::string coverPath, coverMediaType;
   uint64_t totalLinearBytes = 0;
   std::vector<EpubManifestItem> manifest;
   std::vector<EpubSpineItem> spine;

@@ -34,10 +34,10 @@ struct GhostingBudget {
 struct RefreshPolicyConfig {
   uint32_t rapidPageTurnWindowMs = 900;
   uint8_t rapidTurnsBeforeFastest = 2;
-  uint8_t maxConsecutiveFastestRefreshes = 4;
-  uint8_t maxFastRefreshesBeforeCleanup = 8;
-  uint8_t maxReadingRefreshesBeforeQuality = 10;
-  uint32_t maxMillisecondsWithoutQualityRefresh = 10UL * 60UL * 1000UL;
+  uint8_t maxConsecutiveFastestRefreshes = 2;
+  uint8_t maxFastRefreshesBeforeCleanup = 5;
+  uint8_t maxReadingRefreshesBeforeQuality = 6;
+  uint32_t maxMillisecondsWithoutQualityRefresh = 5UL * 60UL * 1000UL;
   float largeContentChangeRatio = 0.85f;
 };
 

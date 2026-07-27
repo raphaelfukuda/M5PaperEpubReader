@@ -14,13 +14,17 @@ the last stable reading position.
 - EPUB 2 NCX and EPUB 3 navigation-document table of contents;
 - continuous pagination, bounded page cache and checkpoint reconstruction;
 - font sizes of 16, 24, 32, 36 and 40 px with anchored reflow;
+- Book, Sans and Compact font families selectable from the reading menu;
+- Kindle-style two-column library with EPUB titles and JPEG/PNG covers;
+- high-quality grayscale cover display in the reading menu and sleep screen;
 - persistent reading position, font preference and safe “restart book” action;
-- automatic or menu-activated low-power sleep with reading-position resume;
+- automatic or menu-activated light sleep, touch/lever wake and position resume;
 - battery level in the top-right corner, sampled only during screen changes;
 - English and Brazilian Portuguese interface, with English as the default;
 - deliberate E-Ink refresh modes and serialized display/microSD SPI access;
 - adaptive fast/fastest refresh, periodic ghosting cleanup, partial dirty-region
   submission and real front/back page buffers;
+- forced full-quality refresh when entering and leaving sleep;
 - debounced reading-state writes and bounded automatic SRAM/PSRAM selection;
 - Wi-Fi and Bluetooth disabled by design.
 

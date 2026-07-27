@@ -51,22 +51,26 @@ Passa quando identifica `board_M5Paper`, mostra 540×960, encontra PSRAM/touch, 
 ## Espera e bateria
 
 1. Abra um trecho reconhecível de um EPUB e anote conteúdo, zoom e percentual
-   de bateria. Abra o menu, escolha a espera e confirme o aviso localizado.
+   de bateria. Abra o menu, escolha a espera e confirme a capa ampliada, sem
+   texto sobreposto e apresentada por um refresh completo.
 2. Acione apenas o lado de aumentar fonte. O aparelho deve acordar, redesenhar
    o mesmo trecho e manter o zoom anterior.
 3. Repita usando apenas o lado de diminuir fonte. O acionamento de wake-up não
    pode mudar o zoom.
-4. Deixe o aparelho sem toque nem alavanca por dez minutos. Confirme entrada
+4. Repita acordando somente com um novo toque. O toque usado para selecionar
+   sleep não pode causar wake imediato, e a página restaurada deve receber um
+   refresh completo.
+5. Deixe o aparelho sem toque nem alavanca por dez minutos. Confirme entrada
    automática na espera e repetição correta do passo 2 ou 3.
-5. Durante os dez minutos, interaja perto do limite primeiro por toque e depois
+6. Durante os dez minutos, interaja perto do limite primeiro por toque e depois
    pela alavanca. Cada interação deve reiniciar integralmente o temporizador.
-6. Entre em espera a partir da biblioteca. Ao acordar, deve retornar à
+7. Entre em espera a partir da biblioteca. Ao acordar, deve retornar à
    biblioteca, sem abrir indevidamente o último livro.
-7. Confira o indicador no canto superior direito na biblioteca, leitura, menu e
+8. Confira o indicador no canto superior direito na biblioteca, leitura, menu e
    sumário. Ele não pode encobrir o título e deve ficar entre 0 e 100%.
-8. Deixe a tela parada e varie alimentação/carga: não deve ocorrer refresh só
+9. Deixe a tela parada e varie alimentação/carga: não deve ocorrer refresh só
    por mudança da bateria. Troque de tela e confirme então a nova amostragem.
-9. Meça a corrente antes e durante a espera, com USB desconectado, e registre
+10. Meça a corrente antes e durante a espera, com USB desconectado, e registre
    placa, tensão, cartão e instrumento. Light sleep é usado porque deep sleep
    do ESP32 original não acorda por qualquer um de dois GPIOs ativos em baixo.
 
@@ -189,3 +193,18 @@ virada e saia pelo menu para que ele seja regravado como versão 2 antes do test
    persistência obrigatória correspondente e a retomada deve manter a posição.
 5. Faça 100 viradas e observe reinicializações, watchdog, falhas de alocação e
    redução contínua do maior bloco. O segundo núcleo deve permanecer desativado.
+
+## Capas e famílias de fonte
+
+1. Abra um EPUB 2 com `meta name="cover"` e um EPUB 3 com `cover-image`.
+2. Confirme a miniatura no canto superior do menu e a capa ampliada no sleep.
+3. Teste também livro sem capa, PNG/JPEG inválido e capa acima de 2 MiB; o leitor
+   deve manter fallback textual e continuar navegável.
+4. Toque no botão Fonte/Font e percorra Book, Sans e Compact. Cada troca deve
+   manter a posição textual, repaginar e ser preservada após reiniciar.
+5. Confira acentos, cedilha, aspas, travessões e tamanhos 16–40 em todas as
+   famílias antes de aprovar a aparência tipográfica.
+6. Na biblioteca, confirme duas capas por linha e o título UTF-8 abaixo de cada
+   uma, especialmente nomes com á, é, í, ó, ú, ã, õ e ç.
+7. Cronometre quatro livros visíveis. Deve ocorrer apenas um refresh Quality
+   depois da coleta das capas, e não um refresh completo por livro.

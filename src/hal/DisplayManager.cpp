@@ -104,6 +104,18 @@ bool DisplayManager::begin() {
   return canvasReady_;
 }
 
+M5Canvas& DisplayManager::imageCanvas() {
+  if (imageCanvasReady_) return imageCanvas_;
+  imageCanvas_.setColorDepth(8);
+  imageCanvas_.setPsram(true);
+  imageCanvasReady_ = imageCanvas_.createSprite(width(), height()) != nullptr;
+  Serial.printf("M5EPUB_MEMORY,canvas=image,depth=8,requested=%u,success=%u,psram_free=%u\n",
+                static_cast<unsigned>(width() * height()),
+                imageCanvasReady_ ? 1U : 0U,
+                static_cast<unsigned>(ESP.getFreePsram()));
+  return imageCanvasReady_ ? imageCanvas_ : canvas_;
+}
+
 void DisplayManager::setRefreshProfile(RefreshProfile profile) {
   switch (profile) {
     case RefreshProfile::Quality: M5.Display.setEpdMode(epd_mode_t::epd_quality); break;
@@ -142,7 +154,7 @@ bool DisplayManager::submitFull(RefreshIntent intent) {
 
 bool DisplayManager::submitCanvas(M5Canvas& source, RefreshIntent intent) {
   if (!canvasReady_) return false;
-  drawBatteryIndicator(source);
+  if (intent != RefreshIntent::SleepCoverQuality) drawBatteryIndicator(source);
   DisplayRegion selectedRegion;
   DirtyRegionResult dirty;
   uint32_t diffScanUs = 0;
@@ -180,6 +192,11 @@ bool DisplayManager::submitCanvas(M5Canvas& source, RefreshIntent intent) {
   request.nowMs = nowMs;
   if (intent == RefreshIntent::ManualCleanup) {
     request.reason = RefreshReason::ManualCleanup;
+  } else if (intent == RefreshIntent::ImageQuality ||
+             intent == RefreshIntent::SleepCoverQuality) {
+    request.reason = RefreshReason::OpenBook;
+  } else if (intent == RefreshIntent::WakeFromSleep) {
+    request.reason = RefreshReason::WakeFromSleep;
   } else if (intent == RefreshIntent::FullQuality) {
     request.reason = RefreshReason::Boot;
   } else if (intent == RefreshIntent::InteractiveFeedback ||
@@ -207,17 +224,24 @@ bool DisplayManager::submitCanvas(M5Canvas& source, RefreshIntent intent) {
     lastReadingSubmitMs_ = nowMs;
   }
   const RefreshDecision decision = refreshPolicy_.decide(request);
-  if (decision.effective == RefreshProfile::Quality) selectedRegion = {};
+  RefreshDecision effectiveDecision = decision;
+  if (intent == RefreshIntent::ImageQuality ||
+      intent == RefreshIntent::SleepCoverQuality ||
+      intent == RefreshIntent::WakeFromSleep) {
+    effectiveDecision.requested = RefreshProfile::Quality;
+    effectiveDecision.effective = RefreshProfile::Quality;
+  }
+  if (effectiveDecision.effective == RefreshProfile::Quality) selectedRegion = {};
   activeDirtyFlags_ = selectedRegion.empty()
                           ? ReaderDirtyFlags::All
                           : classifyReaderDirtyRegion(selectedRegion, width(), height());
-  setRefreshProfile(decision.effective);
-  activeModeName_ = refreshProfileName(decision.effective);
+  setRefreshProfile(effectiveDecision.effective);
+  activeModeName_ = refreshProfileName(effectiveDecision.effective);
   activeRegionName_ = selectedRegion.empty() ? "full" : "partial";
   Serial.printf(
       "M5EPUB_REFRESH,requested=%s,effective=%s,reason=%s,cleanup=%s,fast_count=%u,fastest_count=%u,reading_count=%u\n",
-      refreshProfileName(decision.requested), refreshProfileName(decision.effective),
-      refreshReasonName(decision.reason), decision.cleanupCause,
+      refreshProfileName(effectiveDecision.requested), refreshProfileName(effectiveDecision.effective),
+      refreshReasonName(effectiveDecision.reason), effectiveDecision.cleanupCause,
       refreshPolicy_.budget().fastRefreshes,
       refreshPolicy_.budget().fastestRefreshes,
       refreshPolicy_.budget().readingRefreshes);
@@ -268,18 +292,18 @@ bool DisplayManager::submitCanvas(M5Canvas& source, RefreshIntent intent) {
         static_cast<unsigned>(activeDirtyFlags_));
   }
   lastSubmittedSource_ = &source;
-  refreshPolicy_.recordSubmitted(decision);
-  if (decision.effective == RefreshProfile::Quality) {
+  refreshPolicy_.recordSubmitted(effectiveDecision);
+  if (effectiveDecision.effective == RefreshProfile::Quality) {
     ++refreshMetrics_.qualityRefreshes;
     refreshMetrics_.readingPagesSinceQuality = 0;
-    if (decision.cleanupForced) ++refreshMetrics_.periodicQualityRefreshes;
-  } else if (decision.effective == RefreshProfile::Text) {
+    if (effectiveDecision.cleanupForced) ++refreshMetrics_.periodicQualityRefreshes;
+  } else if (effectiveDecision.effective == RefreshProfile::Text) {
     ++refreshMetrics_.textRefreshes;
     ++refreshMetrics_.readingPagesSinceQuality;
-  } else if (decision.effective == RefreshProfile::Fastest) {
+  } else if (effectiveDecision.effective == RefreshProfile::Fastest) {
     ++refreshMetrics_.fastestRefreshes;
     ++refreshMetrics_.readingPagesSinceQuality;
-  } else if (decision.effective == RefreshProfile::Fast) {
+  } else if (effectiveDecision.effective == RefreshProfile::Fast) {
     ++refreshMetrics_.fastRefreshes;
     ++refreshMetrics_.readingPagesSinceQuality;
   }

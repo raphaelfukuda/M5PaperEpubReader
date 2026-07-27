@@ -19,6 +19,7 @@ struct Text {
   const char* restartBook;
   const char* closeMenu;
   const char* zoom;
+  const char* fontFamily;
   const char* chapter;
   const char* approximateProgress;
   const char* restartQuestion;

@@ -3,9 +3,15 @@
 #include "HtmlEntityDecoder.h"
 #include "XmlTokenizer.h"
 #include "storage/PathUtils.h"
+#include "EpubContentDiscovery.h"
 
 bool EpubParser::start(const std::string& filePath) { archive_.close(); book_ = {}; book_.filePath = filePath; buffer_.clear(); error_.clear(); tocError_.clear(); tocDocument_ = {}; measureSpineIndex_ = 0; phase_ = Phase::OpenArchive; return true; }
 void EpubParser::fail(const std::string& message) { error_ = message; phase_ = Phase::Failed; archive_.close(); }
+
+bool EpubParser::metadataReady() const {
+  return phase_ == Phase::MeasureSpine || phase_ == Phase::ReadToc ||
+         phase_ == Phase::ParseToc || phase_ == Phase::Done;
+}
 
 WorkResult EpubParser::processNextChunk() {
   switch (phase_) {
@@ -15,6 +21,7 @@ WorkResult EpubParser::processNextChunk() {
     case Phase::ReadOpf: if (!archive_.readEntry(book_.packagePath, app_config::kMaxOpfBytes, buffer_)) { fail(archive_.error()); return WorkResult::Failed; } phase_ = Phase::ParseOpf; return WorkResult::MoreWork;
     case Phase::ParseOpf:
       if (!parseOpf()) return WorkResult::Failed;
+      { EpubImageReference cover; if (epub_content::discoverCover(buffer_, book_.manifest, cover)) { book_.coverPath = cover.path; book_.coverMediaType = cover.mediaType; } }
       EpubTableOfContents::discover(buffer_, book_.packagePath, tocDocument_, tocError_);
       buffer_.clear(); measureSpineIndex_ = 0; book_.totalLinearBytes = 0;
       phase_ = Phase::MeasureSpine; return WorkResult::MoreWork;
@@ -75,7 +82,7 @@ bool EpubParser::parseOpf() {
       if (name == "title" || name == "creator" || name == "language") { capture = name; text.clear(); }
       else if (name == "item") {
         if (book_.manifest.size() >= app_config::kMaxManifestItems) { fail("Manifest excede limite"); return false; }
-        EpubManifestItem item; for (const auto& a : token.attributes) { const std::string key = XmlTokenizer::localName(a.first); if (key == "id") item.id = a.second; else if (key == "href") item.href = path_utils::resolveRelative(book_.packagePath, a.second); else if (key == "media-type") item.mediaType = a.second; }
+        EpubManifestItem item; for (const auto& a : token.attributes) { const std::string key = XmlTokenizer::localName(a.first); if (key == "id") item.id = a.second; else if (key == "href") item.href = path_utils::resolveRelative(book_.packagePath, a.second); else if (key == "media-type") item.mediaType = a.second; else if (key == "properties") item.properties = a.second; }
         if (!item.id.empty() && !item.href.empty()) book_.manifest.push_back(item);
       } else if (name == "itemref") {
         if (book_.spine.size() >= app_config::kMaxSpineItems) { fail("Spine excede limite"); return false; }

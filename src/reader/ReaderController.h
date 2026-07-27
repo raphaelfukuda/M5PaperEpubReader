@@ -19,7 +19,8 @@ class ReaderController {
   bool start();
   bool startAt(const PageAnchor& anchor, uint16_t fontSize);
   bool startAt(const PageAnchor& anchor, uint16_t fontSize, uint32_t pageNumber,
-               const std::vector<PageAnchor>& previousPages);
+               const std::vector<PageAnchor>& previousPages,
+               ReaderFontFamily fontFamily = ReaderFontFamily::Compact);
   bool startAtSpine(uint32_t spineIndex);
   WorkResult processNextChunk();
   WorkResult readInputChunk();
@@ -39,6 +40,8 @@ class ReaderController {
   WorkResult increaseFontSize();
   WorkResult decreaseFontSize();
   uint16_t fontSize() const { return settings_.fontSize; }
+  ReaderFontFamily fontFamily() const { return settings_.fontFamily; }
+  WorkResult cycleFontFamily();
   bool redrawCurrentPage();
   PageAnchor currentAnchor() const;
   bool isPrefetching() const { return prefetching_; }

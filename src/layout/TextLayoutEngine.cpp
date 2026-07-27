@@ -12,7 +12,7 @@ void TextLayoutEngine::updateFontMetrics() {
   uint16_t styledSize = static_cast<uint16_t>(baseFontSize_ * style_.fontScale);
   if (styledSize < 16) styledSize = 16;
   if (styledSize > 60) styledSize = 60;
-  canvas_->setFont(reader_font::forSize(styledSize)); canvas_->setTextSize(reader_font::scaleForSize(styledSize));
+  canvas_->setFont(reader_font::forSize(styledSize, settings_.fontFamily)); canvas_->setTextSize(reader_font::scaleForSize(styledSize, settings_.fontFamily));
   lineHeight_ = static_cast<int32_t>(canvas_->fontHeight() * settings_.lineSpacing * style_.lineSpacingScale);
 }
 

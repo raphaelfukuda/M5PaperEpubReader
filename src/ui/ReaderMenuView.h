@@ -4,6 +4,7 @@
 #include "epub/EpubBook.h"
 #include "hal/DisplayManager.h"
 #include "layout/PageAnchor.h"
+#include "layout/LayoutStyle.h"
 
 enum class ReaderMenuAction {
   None,
@@ -14,6 +15,7 @@ enum class ReaderMenuAction {
   TocBack,
   RestartBook,
   ToggleLanguage,
+  CycleFontFamily,
   EnterSleep,
   ConfirmRestart,
   CancelRestart,
@@ -24,7 +26,9 @@ class ReaderMenuView {
  public:
   explicit ReaderMenuView(DisplayManager& display) : display_(display) {}
   void render(const EpubBook& book, const PageAnchor& anchor,
-              uint32_t pageNumber, uint16_t fontSize);
+              uint32_t pageNumber, uint16_t fontSize,
+              ReaderFontFamily fontFamily, const std::string& coverData,
+              const std::string& coverMediaType);
   void renderRestartConfirmation();
   void renderTableOfContents(const EpubBook& book, size_t page = 0);
   ReaderMenuAction actionAt(int32_t x, int32_t y) const;

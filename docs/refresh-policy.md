@@ -22,13 +22,17 @@ em `AppConfig.h` e têm equivalentes na configuração pura usada pelos testes.
 ## Orçamento de ghosting
 
 O orçamento global conta refreshes Fast, Fastest, parciais e de leitura. Uma
-limpeza Quality é forçada ao atingir 4 Fastest, 8 Fast, 10 refreshes de leitura
-ou 10 minutos desde a última limpeza. Os contadores usam incremento saturado e
+limpeza Quality é forçada ao atingir 2 Fastest, 5 Fast, 6 refreshes de leitura
+ou 5 minutos desde a última limpeza. Esses limites foram reduzidos depois de
+ghosting visível no teste físico. Os contadores usam incremento saturado e
 são zerados após Quality; o histórico de limpezas é preservado.
 
 Cada submissão gera uma linha `M5EPUB_REFRESH` com modo solicitado, modo efetivo,
 motivo, causa da limpeza e contadores. Os thresholds são conservadores e precisam
 de validação visual no M5Paper original.
+
+Entrar em sleep, sair de sleep e pressionar o centro da alavanca sempre força
+Quality em tela inteira. Essas operações também reiniciam o orçamento global.
 
 ## Fallback e limitações atuais
 

@@ -1,8 +1,12 @@
 #include "AppController.h"
+#include "ui/CoverRenderer.h"
+#include "epub/EpubContentDiscovery.h"
 
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <SD.h>
+#include <esp_heap_caps.h>
+#include <new>
 #include "AppConfig.h"
 #include "UiStrings.h"
 #include "diagnostics/Logger.h"
@@ -15,6 +19,13 @@ void AppController::begin() {
   Logger::begin();
   auto config = M5.config();
   M5.begin(config);
+  void* libraryParserMemory = heap_caps_malloc(
+      sizeof(EpubParser), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (libraryParserMemory)
+    libraryParser_ = new (libraryParserMemory) EpubParser(spiBus_);
+  Serial.printf("M5EPUB_MEMORY,component=library_parser,bytes=%u,status=%s\n",
+                static_cast<unsigned>(sizeof(EpubParser)),
+                libraryParser_ ? "ready" : "disabled");
   power_.begin();
   preferences_.begin("m5epub", false);
   const uint8_t savedLanguage = preferences_.getUChar("language", 0);
@@ -87,6 +98,7 @@ void AppController::tick() {
       const EpubBook& book = epubParser_.book();
       Serial.printf("EPUB parsed: title=%s author=%s language=%s manifest=%u spine=%u opf=%s\n", book.title.c_str(), book.author.c_str(), book.language.c_str(), static_cast<unsigned>(book.manifest.size()), static_cast<unsigned>(book.spine.size()), book.packagePath.c_str());
       for (size_t i = 0; i < book.spine.size(); ++i) Serial.printf("Spine[%u]: %s\n", static_cast<unsigned>(i), book.spine[i].idref.c_str());
+        loadCurrentBookCover();
         if (!startReaderWithSavedState()) { Serial.printf("Reader start error: %s\n", reader_.error().c_str()); browserView_.showBookError(reader_.error()); state_ = AppState::ErrorDialog; bookSelected_ = true; }
         else readingLayout_ = true;
       } else if (work == WorkResult::Failed) {
@@ -124,11 +136,13 @@ void AppController::tick() {
       browserView_.setModel(currentPath_, &scanner_.entries(), false,
                             scanner_.wasTruncated(), scanner_.error());
       browserDirty_ = true;
+      scheduleLibraryPreviews();
       Serial.printf("Directory scan: path=%s entries=%u truncated=%s\n",
                     currentPath_.c_str(), static_cast<unsigned>(scanner_.entries().size()),
                     scanner_.wasTruncated() ? "yes" : "no");
     }
   }
+  serviceLibraryPreviews();
   if (browserDirty_ && M5.Display.displayBusy() == false) {
     browserView_.render();
     browserDirty_ = false;
@@ -161,7 +175,8 @@ void AppController::executeReaderAction(PendingReaderAction pendingAction,
   if (pendingAction == PendingReaderAction::OpenMenu) {
     reader_.invalidateReadyPrefetch();
     readerMenuView_.render(reader_.book(), reader_.currentAnchor(),
-                           reader_.pageNumber(), reader_.fontSize());
+                           reader_.pageNumber(), reader_.fontSize(), reader_.fontFamily(),
+                           coverData_, coverMediaType_);
     state_ = AppState::ReaderMenu;
     Serial.println("Reader menu opened");
     return;
@@ -279,6 +294,9 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
     bookSelected_ = false;
     browserView_.setModel(currentPath_, &scanner_.entries(), false,
                           scanner_.wasTruncated(), scanner_.error());
+    coverData_.clear();
+    coverMediaType_.clear();
+    scheduleLibraryPreviews();
     browserDirty_ = true;
     Serial.println("Reader menu: back to library");
   } else if (action == ReaderMenuAction::OpenTableOfContents) {
@@ -328,13 +346,32 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
     ui_strings::setLanguage(language);
     preferences_.putUChar("language", static_cast<uint8_t>(language));
     readerMenuView_.render(reader_.book(), reader_.currentAnchor(),
-                           reader_.pageNumber(), reader_.fontSize());
+                           reader_.pageNumber(), reader_.fontSize(), reader_.fontFamily(),
+                           coverData_, coverMediaType_);
     Serial.printf("UI language: %s\n", ui_strings::languageName());
   } else if (action == ReaderMenuAction::EnterSleep) {
     enterSleepMode();
+  } else if (action == ReaderMenuAction::CycleFontFamily) {
+    beginPageTurnMeasurement(PageTurnKind::FontReflow);
+    const WorkResult result = reader_.cycleFontFamily();
+    markReadingStateDirty(false);
+    requestForcedPersist(PersistReason::FontChanged);
+    if (result == WorkResult::MoreWork) {
+      state_ = AppState::OpeningBook;
+      readingLayout_ = true;
+      bookSelected_ = false;
+    } else if (result == WorkResult::Completed) {
+      readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(),
+                                   reader_.presentationCanvas());
+      state_ = AppState::Reading;
+      recordPageReady();
+    } else {
+      measuringPageTurn_ = false;
+    }
   } else if (action == ReaderMenuAction::CancelRestart) {
     readerMenuView_.render(reader_.book(), reader_.currentAnchor(),
-                           reader_.pageNumber(), reader_.fontSize());
+                           reader_.pageNumber(), reader_.fontSize(), reader_.fontFamily(),
+                           coverData_, coverMediaType_);
   } else if (action == ReaderMenuAction::ConfirmRestart) {
     bool stateRemoved = false;
     {
@@ -384,19 +421,27 @@ void AppController::enterSleepMode() {
     markReadingStateDirty();
     persistReadingState(PersistReason::EnterSleep, true);
   }
-  M5Canvas& canvas = display_.canvas();
+  M5Canvas& canvas = resumeReading && !coverData_.empty()
+                         ? display_.imageCanvas()
+                         : display_.canvas();
   canvas.fillScreen(TFT_WHITE);
   canvas.setTextColor(TFT_BLACK, TFT_WHITE);
   canvas.setFont(&fonts::Font2);
   canvas.setTextSize(2);
   canvas.setTextDatum(middle_center);
-  canvas.drawString(ui_strings::get().sleepMode, display_.width() / 2,
-                    display_.height() / 2 - 45);
-  canvas.setFont(&fonts::Font0);
-  canvas.setTextSize(1);
-  canvas.drawString(ui_strings::get().wakeWithLever, display_.width() / 2,
-                    display_.height() / 2 + 35);
-  display_.submitFull(RefreshIntent::FullQuality);
+  const bool coverDrawn = resumeReading && drawCoverImage(
+      canvas, coverData_, coverMediaType_, 18, 18,
+      display_.width() - 36, display_.height() - 36);
+  if (!coverDrawn) {
+    canvas.drawString(ui_strings::get().sleepMode, display_.width() / 2,
+                      display_.height() / 2 - 25);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextSize(1);
+    canvas.drawString(ui_strings::get().wakeWithLever, display_.width() / 2,
+                      display_.height() / 2 + 35);
+  }
+  display_.submitCanvas(canvas, coverDrawn ? RefreshIntent::SleepCoverQuality
+                                           : RefreshIntent::FullQuality);
   display_.waitUntilIdle();
   state_ = AppState::Sleeping;
   Serial.printf("Entering low-power sleep; resume=%s\n", resumeReading ? "yes" : "no");
@@ -405,7 +450,9 @@ void AppController::enterSleepMode() {
   lastInteractionMs_ = millis();
   M5.update();
   if (resumeReading && reader_.redrawCurrentPage()) {
-    readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(), reader_.presentationCanvas());
+    readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(),
+                                 reader_.presentationCanvas(),
+                                 RefreshIntent::WakeFromSleep);
     state_ = AppState::Reading;
   } else {
     state_ = AppState::FileBrowser;
@@ -438,7 +485,8 @@ bool AppController::startReaderWithSavedState() {
       previous.parserCheckpoint = entry.parserCheckpoint;
       history.push_back(previous);
     }
-    if (reader_.startAt(anchor, saved.fontSize, saved.pageNumber, history)) {
+    if (reader_.startAt(anchor, saved.fontSize, saved.pageNumber, history,
+                        static_cast<ReaderFontFamily>(saved.fontFamily))) {
       Serial.printf("Reading state restored: spine=%lu checkpoint=%lu font=%u page=%lu history=%u\n",
                     static_cast<unsigned long>(anchor.spineIndex),
                     static_cast<unsigned long>(anchor.parserCheckpoint), saved.fontSize,
@@ -449,6 +497,101 @@ bool AppController::startReaderWithSavedState() {
     Serial.printf("Saved reading state ignored: %s\n", reader_.error().c_str());
   }
   return reader_.start();
+}
+
+void AppController::loadCurrentBookCover() {
+  loadBookCover(epubParser_, app_config::kMaximumCoverBytes,
+                coverData_, coverMediaType_);
+}
+
+bool AppController::loadBookCover(EpubParser& parser, size_t maximumBytes,
+                                  std::string& data,
+                                  std::string& mediaType) {
+  data.clear();
+  mediaType.clear();
+  const EpubBook& book = parser.book();
+  std::string coverPath = book.coverPath;
+  std::string coverType = book.coverMediaType;
+  if (coverPath.empty() && !book.spine.empty()) {
+    std::string wrapperPath;
+    for (const auto& item : book.manifest) {
+      if (item.id == book.spine.front().idref &&
+          item.mediaType == "application/xhtml+xml") {
+        wrapperPath = item.href;
+        break;
+      }
+    }
+    std::string wrapper;
+    if (!wrapperPath.empty() && parser.archive().readEntry(
+            wrapperPath, app_config::kMaximumCoverDocumentBytes, wrapper)) {
+      std::vector<EpubImageReference> images;
+      std::string discoveryError;
+      if (epub_content::discoverRasterImages(wrapper, wrapperPath, book.manifest,
+                                               4, images, discoveryError) &&
+          !images.empty()) {
+        coverPath = images.front().path;
+        coverType = images.front().mediaType;
+        Serial.printf("M5EPUB_COVER,status=wrapper_fallback,path=%s\n",
+                      coverPath.c_str());
+      }
+    }
+  }
+  if (coverPath.empty() ||
+      (coverType != "image/jpeg" && coverType != "image/png")) {
+    Serial.println("M5EPUB_COVER,status=not_found");
+    return false;
+  }
+  if (!parser.archive().readEntry(coverPath, maximumBytes, data)) {
+    Serial.printf("Cover skipped: %s\n", parser.archive().error().c_str());
+    data.clear();
+    return false;
+  }
+  mediaType = coverType;
+  Serial.printf("M5EPUB_COVER,status=ready,path=%s,bytes=%u,type=%s\n",
+                coverPath.c_str(), static_cast<unsigned>(data.size()),
+                mediaType.c_str());
+  return true;
+}
+
+void AppController::scheduleLibraryPreviews() {
+  if (libraryParser_) libraryParser_->archive().close();
+  libraryPreviewQueue_ = browserView_.visibleBooks();
+  libraryPreviewIndex_ = 0;
+  libraryPreviewActive_ = false;
+  browserView_.clearPreviews();
+}
+
+void AppController::serviceLibraryPreviews() {
+  if (!libraryParser_ || state_ != AppState::FileBrowser || scanner_.isRunning() ||
+      M5.Display.displayBusy() || browserDirty_) return;
+  if (libraryPreviewIndex_ >= libraryPreviewQueue_.size()) return;
+  const FileEntry& entry = libraryPreviewQueue_[libraryPreviewIndex_];
+  if (!libraryPreviewActive_) {
+    libraryParser_->start(entry.fullPath);
+    libraryPreviewActive_ = true;
+    Serial.printf("M5EPUB_LIBRARY_COVER,status=start,path=%s\n",
+                  entry.fullPath.c_str());
+  }
+  const WorkResult result = libraryParser_->processNextChunk();
+  const bool metadataReady = libraryParser_->metadataReady();
+  if (result == WorkResult::MoreWork && !metadataReady) return;
+  if (result == WorkResult::Completed || metadataReady) {
+    LibraryBookPreview preview;
+    preview.path = entry.fullPath;
+    preview.title = libraryParser_->book().title;
+    loadBookCover(*libraryParser_, app_config::kMaximumLibraryCoverBytes,
+                  preview.coverData, preview.coverMediaType);
+    browserView_.setPreview(std::move(preview));
+  } else {
+    Serial.printf("M5EPUB_LIBRARY_COVER,status=failed,path=%s,error=%s\n",
+                  entry.fullPath.c_str(), libraryParser_->error().c_str());
+  }
+  libraryParser_->archive().close();
+  libraryPreviewActive_ = false;
+  ++libraryPreviewIndex_;
+  // Rendering each cover separately forces one slow quality refresh per book.
+  // Keep the initial placeholders visible and present the completed page once.
+  if (libraryPreviewIndex_ >= libraryPreviewQueue_.size()) browserDirty_ = true;
 }
 
 void AppController::markReadingStateDirty(bool pageChanged) {
@@ -471,6 +614,7 @@ bool AppController::persistReadingState(PersistReason reason, bool forced) {
   state.textOffset = anchor.uncompressedOffset;
   state.parserCheckpoint = anchor.parserCheckpoint;
   state.fontSize = reader_.fontSize();
+  state.fontFamily = static_cast<uint8_t>(reader_.fontFamily());
   state.pageNumber = reader_.pageNumber();
   const std::vector<PageAnchor> previous = reader_.previousPageAnchors(
       app_config::kPersistedPreviousPageAnchors);
@@ -535,6 +679,10 @@ void AppController::recordPageReady() {
 void AppController::startDirectory(const std::string& path) {
   currentPath_ = path.empty() ? "/" : path;
   bookSelected_ = false;
+  if (libraryParser_) libraryParser_->archive().close();
+  libraryPreviewQueue_.clear();
+  libraryPreviewActive_ = false;
+  browserView_.clearPreviews();
   if (!scanner_.start(currentPath_)) {
     browserView_.setModel(currentPath_, &scanner_.entries(), false, false,
                           scanner_.error());
@@ -561,18 +709,20 @@ void AppController::handleBrowserEvent(const AppEvent& event) {
     const size_t previous = browserView_.page();
     browserView_.nextPage();
     browserDirty_ = browserView_.page() != previous;
+    if (browserDirty_) scheduleLibraryPreviews();
     return;
   }
   if (event.type == AppEventType::SwipeDown || event.type == AppEventType::SwipeRight) {
     const size_t previous = browserView_.page();
     browserView_.previousPage();
     browserDirty_ = browserView_.page() != previous;
+    if (browserDirty_) scheduleLibraryPreviews();
     return;
   }
   if (event.type != AppEventType::Tap) return;
-  const int logicalIndex = browserView_.itemAt(event.y);
+  const int logicalIndex = browserView_.itemAt(event.x, event.y);
   if (logicalIndex < 0) return;
-  browserView_.showSelection(event.y);
+  browserView_.showSelection(event.x, event.y);
   if (currentPath_ != "/" && logicalIndex == 0) {
     startDirectory(path_utils::parent(currentPath_));
     return;
@@ -583,6 +733,8 @@ void AppController::handleBrowserEvent(const AppEvent& event) {
   if (entry.isDirectory) {
     startDirectory(entry.fullPath);
   } else {
+    if (libraryParser_) libraryParser_->archive().close();
+    libraryPreviewActive_ = false;
     Serial.printf("EPUB selected: %s (%llu bytes)\n", entry.fullPath.c_str(), entry.size);
     browserView_.showBookSelected(entry); epubParser_.start(entry.fullPath);
     bookOpenStartedMs_ = millis(); measuringBookOpen_ = true;

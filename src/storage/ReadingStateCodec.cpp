@@ -54,6 +54,7 @@ bool encode(const ReadingState& state, std::string& output) {
   stream << "M5EPUB-STATE\nversion=" << state.version << "\nbook=" << escape(state.bookPath)
          << "\nspine=" << state.spineIndex << "\noffset=" << state.textOffset
          << "\ncheckpoint=" << state.parserCheckpoint << "\nfont=" << state.fontSize
+         << "\nfont_family=" << static_cast<unsigned>(state.fontFamily)
          << "\nspacing=" << state.lineSpacing << "\nmargin=" << state.horizontalMargin
          << "\npage=" << state.pageNumber
          << "\nhistory_count=" << state.previousPages.size() << "\n";
@@ -78,7 +79,7 @@ bool decode(const std::string& input, ReadingState& state, std::string& error) {
     position = lineEnd + 1;
   }
   ReadingState parsed; uint64_t value = 0;
-  if (!parseUnsigned(fields, "version", UINT32_MAX, value) || (value != 1 && value != ReadingState::kCurrentVersion)) { error = "Versao de estado nao suportada"; return false; }
+  if (!parseUnsigned(fields, "version", UINT32_MAX, value) || (value < 1 || value > ReadingState::kCurrentVersion)) { error = "Versao de estado nao suportada"; return false; }
   const uint32_t storedVersion = static_cast<uint32_t>(value);
   parsed.version = ReadingState::kCurrentVersion;
   const auto book = fields.find("book");
@@ -87,6 +88,10 @@ bool decode(const std::string& input, ReadingState& state, std::string& error) {
   if (!parseUnsigned(fields, "offset", UINT64_MAX, parsed.textOffset)) { error = "Offset invalido"; return false; }
   if (!parseUnsigned(fields, "checkpoint", UINT32_MAX, value)) { error = "Checkpoint invalido"; return false; } parsed.parserCheckpoint = value;
   if (!parseUnsigned(fields, "font", UINT16_MAX, value) || value < 8) { error = "Fonte invalida"; return false; } parsed.fontSize = value;
+  if (storedVersion >= 3) {
+    if (!parseUnsigned(fields, "font_family", 2, value)) { error = "Familia de fonte invalida"; return false; }
+    parsed.fontFamily = static_cast<uint8_t>(value);
+  }
   if (!parseUnsigned(fields, "spacing", UINT16_MAX, value)) { error = "Espacamento invalido"; return false; } parsed.lineSpacing = value;
   if (!parseUnsigned(fields, "margin", UINT16_MAX, value)) { error = "Margem invalida"; return false; } parsed.horizontalMargin = value;
   if (storedVersion >= 2) {

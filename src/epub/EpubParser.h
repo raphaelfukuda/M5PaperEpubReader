@@ -10,6 +10,7 @@ class EpubParser {
   explicit EpubParser(SpiBusGuard& guard) : archive_(guard) {}
   bool start(const std::string& filePath);
   WorkResult processNextChunk();
+  bool metadataReady() const;
   const EpubBook& book() const { return book_; }
   const std::string& error() const { return error_; }
   const std::string& tocError() const { return tocError_; }

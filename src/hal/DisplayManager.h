@@ -8,7 +8,9 @@
 #include "SpiBusGuard.h"
 
 enum class RefreshIntent {
-  FullQuality, ManualCleanup, ReadingPage, InteractiveFeedback, SmallRegion
+  FullQuality, ManualCleanup, ImageQuality, SleepCoverQuality, WakeFromSleep,
+  ReadingPage,
+  InteractiveFeedback, SmallRegion
 };
 
 class DisplayManager {
@@ -18,6 +20,7 @@ class DisplayManager {
   void markTouch(int32_t x, int32_t y);
   void waitUntilIdle();
   M5Canvas& canvas() { return canvas_; }
+  M5Canvas& imageCanvas();
   bool submitFull(RefreshIntent intent);
   bool submitCanvas(M5Canvas& source, RefreshIntent intent);
   void beginPageTurnMetric(PageTurnKind kind, uint32_t eventTimestampUs,
@@ -35,6 +38,8 @@ class DisplayManager {
   void setRefreshProfile(RefreshProfile profile);
   SpiBusGuard& busGuard_;
   M5Canvas canvas_{&M5.Display};
+  M5Canvas imageCanvas_{&M5.Display};
+  bool imageCanvasReady_ = false;
   bool canvasReady_ = false;
   DisplayRefreshMetrics refreshMetrics_;
   RefreshPolicy refreshPolicy_;

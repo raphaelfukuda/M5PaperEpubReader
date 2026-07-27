@@ -54,12 +54,14 @@ bool ReaderController::startAt(const PageAnchor& anchor, uint16_t fontSize) {
 
 bool ReaderController::startAt(const PageAnchor& anchor, uint16_t fontSize,
                                uint32_t pageNumber,
-                               const std::vector<PageAnchor>& previousPages) {
+                               const std::vector<PageAnchor>& previousPages,
+                               ReaderFontFamily fontFamily) {
   if (!resetSession()) return false;
   if (fontSize != 16 && fontSize != 24 && fontSize != 32 && fontSize != 36 && fontSize != 40) {
     error_ = "Tamanho de fonte salvo invalido"; return false;
   }
   settings_.fontSize = fontSize;
+  settings_.fontFamily = fontFamily;
   if (!openLinearSpineAt(anchor.spineIndex)) {
     if (error_.empty()) error_ = "Posicao salva fora do spine";
     return false;
@@ -358,6 +360,14 @@ WorkResult ReaderController::decreaseFontSize() {
   if (settings_.fontSize > 36) return reflowCurrentPage(36);
   if (settings_.fontSize > 32) return reflowCurrentPage(32);
   return reflowCurrentPage(settings_.fontSize > 24 ? 24 : 16);
+}
+
+WorkResult ReaderController::cycleFontFamily() {
+  if (active_ || visitedPages_.empty()) return WorkResult::Idle;
+  const uint8_t next = (static_cast<uint8_t>(settings_.fontFamily) + 1U) % 3U;
+  settings_.fontFamily = static_cast<ReaderFontFamily>(next);
+  invalidateReadyPrefetch();
+  return rebuildPage(currentPage_);
 }
 
 WorkResult ReaderController::requestPreviousPage() {

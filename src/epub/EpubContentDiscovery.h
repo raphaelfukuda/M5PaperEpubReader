@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include "EpubManifestItem.h"
@@ -20,4 +21,10 @@ bool discoverRasterImages(const std::string& xhtml,
                           size_t maximumReferences,
                           std::vector<EpubImageReference>& output,
                           std::string& error);
+bool discoverCover(const std::string& opfXml,
+                   const std::vector<EpubManifestItem>& manifest,
+                   EpubImageReference& cover);
+bool imageDimensions(const uint8_t* data, size_t length,
+                     const std::string& mediaType,
+                     uint32_t& width, uint32_t& height);
 }  // namespace epub_content

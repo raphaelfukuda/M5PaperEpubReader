@@ -417,6 +417,24 @@ void test_image_discovery_enforces_reference_limit() {
   TEST_ASSERT_TRUE(images.empty());
 }
 
+void test_cover_discovery_and_image_dimensions() {
+  std::vector<EpubManifestItem> manifest = {
+      {"front", "OPS/front.jpg", "image/jpeg", "cover-image"},
+      {"other", "OPS/other.png", "image/png", ""}};
+  EpubImageReference cover;
+  TEST_ASSERT_TRUE(epub_content::discoverCover(
+      "<package><metadata><meta name='cover' content='front'/></metadata></package>",
+      manifest, cover));
+  TEST_ASSERT_EQUAL_STRING("OPS/front.jpg", cover.path.c_str());
+  const uint8_t png[] = {0x89, 'P', 'N', 'G', 0, 0, 0, 0, 0, 0, 0, 0,
+                         'I', 'H', 'D', 'R', 0, 0, 2, 0, 0, 0, 3, 0};
+  uint32_t width = 0, height = 0;
+  TEST_ASSERT_TRUE(epub_content::imageDimensions(
+      png, sizeof(png), "image/png", width, height));
+  TEST_ASSERT_EQUAL_UINT32(512, width);
+  TEST_ASSERT_EQUAL_UINT32(768, height);
+}
+
 void test_basic_css_accepts_only_bounded_supported_declarations() {
   const BasicCssStyle style = basic_css::parseDeclarations(
       "text-align: center; font-weight: 700; font-style: italic; "
@@ -443,6 +461,7 @@ void test_reading_state_codec_round_trip_and_rejects_corruption() {
   source.textOffset = UINT64_C(0x100000005);
   source.parserCheckpoint = 123456;
   source.fontSize = 40;
+  source.fontFamily = 1;
   source.lineSpacing = 135;
   source.horizontalMargin = 32;
   source.pageNumber = 87;
@@ -460,6 +479,7 @@ void test_reading_state_codec_round_trip_and_rejects_corruption() {
   TEST_ASSERT_EQUAL_UINT32(source.spineIndex, decoded.spineIndex);
   TEST_ASSERT_EQUAL_UINT64(source.textOffset, decoded.textOffset);
   TEST_ASSERT_EQUAL_UINT16(source.fontSize, decoded.fontSize);
+  TEST_ASSERT_EQUAL_UINT8(source.fontFamily, decoded.fontFamily);
   TEST_ASSERT_EQUAL_UINT32(87, decoded.pageNumber);
   TEST_ASSERT_EQUAL_UINT32(1, decoded.previousPages.size());
   TEST_ASSERT_EQUAL_UINT32(4455, decoded.previousPages[0].parserCheckpoint);
@@ -471,6 +491,7 @@ void test_reading_state_codec_round_trip_and_rejects_corruption() {
   TEST_ASSERT_TRUE(reading_state_codec::decode(legacy, migrated, error));
   TEST_ASSERT_EQUAL_UINT32(ReadingState::kCurrentVersion, migrated.version);
   TEST_ASSERT_EQUAL_UINT32(1, migrated.pageNumber);
+  TEST_ASSERT_EQUAL_UINT8(2, migrated.fontFamily);
   TEST_ASSERT_TRUE(migrated.previousPages.empty());
 
   ReadingState unchanged;
@@ -583,6 +604,7 @@ int main(int, char**) {
   RUN_TEST(test_page_anchor_defaults_and_round_trip_values);
   RUN_TEST(test_discovers_only_safe_manifest_raster_images);
   RUN_TEST(test_image_discovery_enforces_reference_limit);
+  RUN_TEST(test_cover_discovery_and_image_dimensions);
   RUN_TEST(test_basic_css_accepts_only_bounded_supported_declarations);
   RUN_TEST(test_reading_state_codec_round_trip_and_rejects_corruption);
   RUN_TEST(test_epub3_toc_discovery_and_nested_navigation);

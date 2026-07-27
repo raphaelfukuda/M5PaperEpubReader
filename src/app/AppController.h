@@ -38,6 +38,7 @@ class AppController {
   DirectoryScanner scanner_{spiBus_};
   FileBrowserView browserView_{display_};
   EpubParser epubParser_{spiBus_};
+  EpubParser* libraryParser_ = nullptr;
   ReaderController reader_{epubParser_, display_.canvas()};
   ReaderView readerView_{display_};
   ReaderMenuView readerMenuView_{display_};
@@ -61,6 +62,11 @@ class AppController {
   size_t tocPage_ = 0;
   ReaderRuntimeMetrics readerMetrics_;
   PendingReaderActions pendingReaderActions_;
+  std::string coverData_;
+  std::string coverMediaType_;
+  std::vector<FileEntry> libraryPreviewQueue_;
+  size_t libraryPreviewIndex_ = 0;
+  bool libraryPreviewActive_ = false;
 
   void startDirectory(const std::string& path);
   void handleBrowserEvent(const AppEvent& event);
@@ -72,6 +78,11 @@ class AppController {
   bool canEnterAutomaticSleep() const;
   void enterSleepMode();
   bool startReaderWithSavedState();
+  void loadCurrentBookCover();
+  bool loadBookCover(EpubParser& parser, size_t maximumBytes,
+                     std::string& data, std::string& mediaType);
+  void scheduleLibraryPreviews();
+  void serviceLibraryPreviews();
   void markReadingStateDirty(bool pageChanged = true);
   void requestForcedPersist(PersistReason reason);
   bool persistReadingState(PersistReason reason, bool forced = false);
