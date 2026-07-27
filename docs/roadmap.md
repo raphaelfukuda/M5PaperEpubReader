@@ -4,6 +4,23 @@ This document lists the next planned improvements. It describes intent rather
 than a release commitment; contributions should follow `CONTRIBUTING.md` and
 remain compatible with the original ESP32 M5Paper.
 
+## Planned features
+
+### Web interface for EPUB upload
+
+- Provide an optional, temporary Wi-Fi mode for uploading `.epub` books from a
+  phone or computer directly to the microSD card.
+- Offer a simple web page with upload progress, available-space information and
+  clear success/error feedback.
+- Accept only validated EPUB filenames and bounded uploads; prevent path
+  traversal, accidental overwrite and incomplete files through atomic writes.
+- Pause display/SD work safely while writing because the M5Paper shares the SPI
+  bus between the screen and microSD.
+- Require explicit activation on the device and automatically disable the web
+  interface and Wi-Fi after completion or inactivity to preserve battery and
+  the reader's offline-by-default behavior.
+- Refresh the library and prepare the new book's cover after a successful upload.
+
 ## Implemented roadmap features
 
 ### Cover image in the reading menu
