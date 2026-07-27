@@ -21,7 +21,6 @@ class EpubArchive {
   static void closeCallback(void* context);
   static int32_t readCallback(void* context, uint8_t* buffer, int32_t length);
   static int32_t seekCallback(void* context, int32_t position, int origin);
-  static fs::File callbackFile_;
   SpiBusGuard& busGuard_;
   UNZIP zip_;
   std::string path_;

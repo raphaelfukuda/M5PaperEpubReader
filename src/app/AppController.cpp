@@ -47,6 +47,9 @@ void AppController::begin() {
 
   const bool boardOk = M5.getBoard() == m5::board_t::board_M5Paper;
   const bool displayOk = display_.begin();
+  reader_.setHighQualityCanvasProvider([this]() -> M5Canvas& {
+    return display_.imageCanvas();
+  });
   const bool touchOk = touch_.begin();
   display_.waitUntilIdle();
   const SdCardStatus sd = sdCard_.begin();
@@ -131,7 +134,7 @@ void AppController::tick() {
       }
     } else {
       const WorkResult work = reader_.processNextChunk();
-      if (work == WorkResult::Completed) { readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(), reader_.presentationCanvas()); state_ = AppState::Reading; bookSelected_ = true; markReadingStateDirty(); recordPageReady(); Serial.printf("XHTML page rendered: %lu\n", static_cast<unsigned long>(reader_.pageNumber())); }
+      if (work == WorkResult::Completed) { renderCurrentReaderPage(); state_ = AppState::Reading; bookSelected_ = true; markReadingStateDirty(); recordPageReady(); Serial.printf("XHTML page rendered: %lu\n", static_cast<unsigned long>(reader_.pageNumber())); }
       else if (work == WorkResult::Failed) { browserView_.showBookError(reader_.error()); state_ = AppState::ErrorDialog; bookSelected_ = true; Serial.printf("Reader error: %s\n", reader_.error().c_str()); }
     }
   }
@@ -191,6 +194,13 @@ void AppController::tick() {
   }
 }
 
+void AppController::renderCurrentReaderPage() {
+  readerView_.renderPageChrome(
+      reader_.book(), reader_.pageNumber(), reader_.presentationCanvas(),
+      reader_.pageContainsImages() ? RefreshIntent::ImageQuality
+                                   : RefreshIntent::ReadingPage);
+}
+
 void AppController::handleReaderLever(PendingReaderAction pendingAction) {
   if (M5.Display.displayBusy() || reader_.isPrefetching()) {
     queueReaderAction(pendingAction);
@@ -217,7 +227,7 @@ void AppController::executeReaderAction(PendingReaderAction pendingAction,
   if (pendingAction == PendingReaderAction::PreviousPage) {
     beginPageTurnMeasurement(PageTurnKind::CachedPrevious);
     const WorkResult result = reader_.requestPreviousPage();
-    if (result == WorkResult::Completed) { readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(), reader_.presentationCanvas()); markReadingStateDirty(); recordPageReady(); Serial.printf("Previous page: %lu\n", static_cast<unsigned long>(reader_.pageNumber())); }
+    if (result == WorkResult::Completed) { renderCurrentReaderPage(); markReadingStateDirty(); recordPageReady(); Serial.printf("Previous page: %lu\n", static_cast<unsigned long>(reader_.pageNumber())); }
     else if (result == WorkResult::MoreWork) {
       state_ = AppState::OpeningBook;
       readingLayout_ = true;
@@ -231,7 +241,7 @@ void AppController::executeReaderAction(PendingReaderAction pendingAction,
   if (pendingAction == PendingReaderAction::NextPage) {
     beginPageTurnMeasurement(PageTurnKind::CachedNext);
     const WorkResult result = reader_.requestNextPage();
-    if (result == WorkResult::Completed) { readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(), reader_.presentationCanvas()); markReadingStateDirty(); recordPageReady(); Serial.printf("Cached next page: %lu\n", static_cast<unsigned long>(reader_.pageNumber())); }
+    if (result == WorkResult::Completed) { renderCurrentReaderPage(); markReadingStateDirty(); recordPageReady(); Serial.printf("Cached next page: %lu\n", static_cast<unsigned long>(reader_.pageNumber())); }
     else if (result == WorkResult::MoreWork) { state_ = AppState::OpeningBook; readingLayout_ = true; bookSelected_ = false; Serial.println("Generating next page"); }
     else { measuringPageTurn_ = false; Serial.println("End of current chapter"); }
     return;
@@ -252,7 +262,7 @@ void AppController::executeReaderAction(PendingReaderAction pendingAction,
                 static_cast<unsigned long>(anchor.spineIndex),
                 static_cast<unsigned long>(anchor.parserCheckpoint));
   if (result == WorkResult::Completed) {
-    readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(), reader_.presentationCanvas());
+    renderCurrentReaderPage();
     markReadingStateDirty();
     requestForcedPersist(PersistReason::FontChanged);
     recordPageReady();
@@ -394,8 +404,7 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
       readingLayout_ = true;
       bookSelected_ = false;
     } else if (result == WorkResult::Completed) {
-      readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(),
-                                   reader_.presentationCanvas());
+      renderCurrentReaderPage();
       state_ = AppState::Reading;
       recordPageReady();
     } else {
@@ -432,7 +441,7 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
   } else if (action == ReaderMenuAction::Close) {
     beginPageTurnMeasurement(PageTurnKind::MenuReturn);
     if (reader_.redrawCurrentPage())
-      readerView_.renderPageChrome(reader_.book(), reader_.pageNumber(), reader_.presentationCanvas());
+      renderCurrentReaderPage();
     recordPageReady();
     state_ = AppState::Reading;
     Serial.println("Reader menu closed");
@@ -821,7 +830,10 @@ void AppController::servicePortal() {
   wifi_.poll(now);
   if (portal_.running()) {
     portal_.poll();
-    if (portal_.idleMs(now) >= app_config::kPortalIdleTimeoutMs) {
+    const uint32_t portalIdleMs = portal_.idleMs(millis());
+    if (portalIdleMs >= app_config::kPortalIdleTimeoutMs) {
+      Serial.printf("M5EPUB_PORTAL,status=timeout,idle_ms=%lu\n",
+                    static_cast<unsigned long>(portalIdleMs));
       stopUploadServer();
       return;
     }
@@ -859,9 +871,15 @@ void AppController::servicePortal() {
   } else if (wifi_.state() == WifiState::Failed && !portalFailureStartedMs_) {
     portalStartRequested_ = false;
     portalFailureStartedMs_ = now;
-    if (state_ == AppState::LibraryMenu) renderLibraryPortalState(true);
+    if (state_ == AppState::WebPortalNetworks)
+      webPortalView_.renderNetworks(wifi_);
+    else if (state_ == AppState::LibraryMenu)
+      renderLibraryPortalState(true);
   }
-  if (portalFailureStartedMs_ && now - portalFailureStartedMs_ >= 4000) {
+  if (portalFailureStartedMs_ &&
+      state_ != AppState::WebPortalNetworks &&
+      state_ != AppState::WebPortalPassword &&
+      now - portalFailureStartedMs_ >= 4000) {
     portalFailureStartedMs_ = 0;
     stopUploadServer();
   }
@@ -875,10 +893,12 @@ void AppController::handleWebPortalEvent(const AppEvent& event) {
     if (hit.action == WebPortalViewAction::Cancel) {
       stopUploadServer();
     } else if (hit.action == WebPortalViewAction::Rescan) {
+      portalFailureStartedMs_ = 0;
       wifi_.beginScan();
       portalNetworksRenderPending_ = true;
       webPortalView_.renderNetworks(wifi_);
     } else if (hit.action == WebPortalViewAction::ForgetAll) {
+      portalFailureStartedMs_ = 0;
       wifi_.forgetAll();
       wifi_.beginScan();
       portalNetworksRenderPending_ = true;

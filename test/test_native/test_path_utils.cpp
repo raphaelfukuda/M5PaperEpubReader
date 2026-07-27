@@ -375,6 +375,39 @@ void test_tokenizer_does_not_duplicate_layout_boundaries_between_chunks() {
                            withoutStyleControls(output).c_str());
 }
 
+void test_tokenizer_preserves_inline_image_reference_and_alt_text() {
+  HtmlTokenizer tokenizer;
+  tokenizer.reset();
+  std::string output = feed(
+      tokenizer, "<p>Antes<img src='../Images/Figura-Á.jpg?x=1' "
+                 "alt='Descrição &amp; gráfico'>Depois</p>", true);
+  const std::string imageCode{text_style_control::kEscape,
+                              static_cast<char>(text_style_control::InlineImage)};
+  const size_t marker = output.find(imageCode);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, marker);
+  std::string source, alternative;
+  size_t markerLength = 0;
+  TEST_ASSERT_TRUE(text_style_control::decodeInlineImage(
+      output, marker, source, alternative, markerLength));
+  TEST_ASSERT_EQUAL_STRING(u8"../Images/Figura-Á.jpg", source.c_str());
+  TEST_ASSERT_EQUAL_STRING(u8"Descrição & gráfico", alternative.c_str());
+  TEST_ASSERT_GREATER_THAN(4, markerLength);
+}
+
+void test_tokenizer_emits_image_only_after_split_tag_completes() {
+  HtmlTokenizer tokenizer;
+  tokenizer.reset();
+  std::string output = feed(tokenizer, "<img src='Images/Fi", false);
+  TEST_ASSERT_TRUE(output.empty());
+  output += feed(tokenizer, "gura.png' alt='Mapa'>", true);
+  std::string source, alternative;
+  size_t markerLength = 0;
+  TEST_ASSERT_TRUE(text_style_control::decodeInlineImage(
+      output, 0, source, alternative, markerLength));
+  TEST_ASSERT_EQUAL_STRING("Images/Figura.png", source.c_str());
+  TEST_ASSERT_EQUAL_STRING("Mapa", alternative.c_str());
+}
+
 void test_page_anchor_defaults_and_round_trip_values() {
   PageAnchor anchor;
   TEST_ASSERT_EQUAL_UINT32(0, anchor.spineIndex);
@@ -605,6 +638,8 @@ int main(int, char**) {
   RUN_TEST(test_tokenizer_normalizes_nbsp_as_breakable_space);
   RUN_TEST(test_tokenizer_preserves_entities_tags_and_utf8_across_chunks);
   RUN_TEST(test_tokenizer_does_not_duplicate_layout_boundaries_between_chunks);
+  RUN_TEST(test_tokenizer_preserves_inline_image_reference_and_alt_text);
+  RUN_TEST(test_tokenizer_emits_image_only_after_split_tag_completes);
   RUN_TEST(test_page_anchor_defaults_and_round_trip_values);
   RUN_TEST(test_discovers_only_safe_manifest_raster_images);
   RUN_TEST(test_image_discovery_enforces_reference_limit);

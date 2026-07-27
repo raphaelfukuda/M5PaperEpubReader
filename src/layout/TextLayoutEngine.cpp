@@ -4,7 +4,7 @@
 #include "ReaderFont.h"
 
 void TextLayoutEngine::begin(M5Canvas& canvas, const ReaderSettings& settings) {
-  canvas_ = &canvas; settings_ = settings; word_.clear(); pendingSpace_ = false; full_ = false; style_ = {}; baseFontSize_ = settings_.fontSize;
+  canvas_ = &canvas; settings_ = settings; word_.clear(); pendingSpace_ = false; full_ = false; pageContainsImage_ = false; style_ = {}; baseFontSize_ = settings_.fontSize;
   canvas_->fillScreen(TFT_WHITE); canvas_->setTextColor(TFT_BLACK, TFT_WHITE); canvas_->setTextDatum(top_left); updateFontMetrics(); x_ = settings_.marginLeft; y_ = settings_.marginTop;
 }
 
@@ -47,7 +47,37 @@ bool TextLayoutEngine::flushWord() {
 
 size_t TextLayoutEngine::processText(const std::string& text) {
   size_t consumed = 0, wordStart = 0;
-  for (size_t i = 0; i < text.size() && !full_; ++i) { const unsigned char c = text[i]; if (c == static_cast<unsigned char>(text_style_control::kEscape) && i + 1 < text.size()) { if (!flushWord()) return wordStart; applyStyle(static_cast<uint8_t>(text[++i])); consumed = i + 1; wordStart = i + 1; } else if (c == '\n') { if (!flushWord()) return wordStart; consumed = i + 1; if (!newLine(true)) return consumed; wordStart = i + 1; } else if (std::isspace(c)) { if (!flushWord()) return wordStart; pendingSpace_ = true; consumed = i + 1; wordStart = i + 1; } else { if (word_.empty()) wordStart = i; word_ += static_cast<char>(c); } }
+  for (size_t i = 0; i < text.size() && !full_; ++i) { const unsigned char c = text[i]; if (c == static_cast<unsigned char>(text_style_control::kEscape) && i + 1 < text.size()) {
+      if (static_cast<uint8_t>(text[i + 1]) == text_style_control::InlineImage) {
+        std::string source, alternative; size_t markerLength = 0;
+        if (!text_style_control::decodeInlineImage(text, i, source, alternative, markerLength)) return i;
+        if (!flushWord()) return wordStart;
+        uint32_t sourceWidth = 0, sourceHeight = 0;
+        const int32_t availableWidth = canvas_->width() - settings_.marginLeft - settings_.marginRight;
+        const int32_t bottom = canvas_->height() - settings_.marginBottom;
+        int32_t drawWidth = 0, drawHeight = 0;
+        if (imageMeasure_ && imageMeasure_(source, sourceWidth, sourceHeight) && sourceWidth && sourceHeight) {
+          drawWidth = availableWidth;
+          drawHeight = static_cast<int32_t>((static_cast<uint64_t>(drawWidth) * sourceHeight) / sourceWidth);
+          const int32_t maximumHeight = bottom - settings_.marginTop;
+          if (drawHeight > maximumHeight) { drawHeight = maximumHeight; drawWidth = static_cast<int32_t>((static_cast<uint64_t>(drawHeight) * sourceWidth) / sourceHeight); }
+        }
+        if (drawHeight > 0 && y_ + drawHeight > bottom && y_ > settings_.marginTop + lineHeight_) { full_ = true; return i; }
+        bool drawn = false;
+        if (drawWidth > 0 && drawHeight > 0 && imageDraw_) {
+          const int32_t left = settings_.marginLeft + (availableWidth - drawWidth) / 2;
+          drawn = imageDraw_(*canvas_, source, left, y_, drawWidth, drawHeight);
+        }
+        if (drawn) { pageContainsImage_ = true; y_ += drawHeight + lineHeight_ / 2; x_ = settings_.marginLeft + style_.blockIndent; }
+        else {
+          word_ = alternative.empty() ? "[Image]" : alternative;
+          if (!flushWord()) return i;
+          if (!newLine()) return i + markerLength;
+        }
+        i += markerLength - 1U; consumed = i + 1U; wordStart = i + 1U; continue;
+      }
+      if (!flushWord()) return wordStart; applyStyle(static_cast<uint8_t>(text[++i])); consumed = i + 1; wordStart = i + 1;
+    } else if (c == '\n') { if (!flushWord()) return wordStart; consumed = i + 1; if (!newLine(true)) return consumed; wordStart = i + 1; } else if (std::isspace(c)) { if (!flushWord()) return wordStart; pendingSpace_ = true; consumed = i + 1; wordStart = i + 1; } else { if (word_.empty()) wordStart = i; word_ += static_cast<char>(c); } }
   if (!full_ && !word_.empty()) { if (!flushWord()) return wordStart; consumed = text.size(); }
   return consumed;
 }

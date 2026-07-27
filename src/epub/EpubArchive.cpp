@@ -3,9 +3,19 @@
 #include <algorithm>
 #include "storage/PathUtils.h"
 
-fs::File EpubArchive::callbackFile_;
-void* EpubArchive::openCallback(const char* filename, int32_t* size) { callbackFile_ = SD.open(filename, FILE_READ); if (!callbackFile_) return nullptr; *size = callbackFile_.size(); return &callbackFile_; }
-void EpubArchive::closeCallback(void* context) { ZIPFILE* zip = static_cast<ZIPFILE*>(context); fs::File* file = static_cast<fs::File*>(zip->fHandle); if (file) file->close(); }
+void* EpubArchive::openCallback(const char* filename, int32_t* size) {
+  fs::File file = SD.open(filename, FILE_READ);
+  if (!file) return nullptr;
+  fs::File* handle = new fs::File(file);
+  if (!handle) { file.close(); return nullptr; }
+  *size = handle->size();
+  return handle;
+}
+void EpubArchive::closeCallback(void* context) {
+  ZIPFILE* zip = static_cast<ZIPFILE*>(context);
+  fs::File* file = static_cast<fs::File*>(zip->fHandle);
+  if (file) { file->close(); delete file; zip->fHandle = nullptr; }
+}
 int32_t EpubArchive::readCallback(void* context, uint8_t* buffer, int32_t length) { ZIPFILE* zip = static_cast<ZIPFILE*>(context); fs::File* file = static_cast<fs::File*>(zip->fHandle); return file ? file->read(buffer, length) : 0; }
 int32_t EpubArchive::seekCallback(void* context, int32_t position, int origin) { ZIPFILE* zip = static_cast<ZIPFILE*>(context); fs::File* file = static_cast<fs::File*>(zip->fHandle); if (!file) return 0; if (origin == SEEK_END) position += zip->iSize; else if (origin == SEEK_CUR) position += file->position(); return file->seek(position); }
 
@@ -16,7 +26,7 @@ bool EpubArchive::open(const std::string& path) {
   if (result != UNZ_OK) { error_ = "ZIP invalido ou inacessivel (codigo " + std::to_string(result) + ")"; return false; }
   path_ = path; opened_ = true; return true;
 }
-void EpubArchive::close() { if (opened_) { ScopedSpiBus bus(busGuard_, SpiBusOwner::SdCard); if (bus) { if (entryOpen_) zip_.closeCurrentFile(); zip_.closeZIP(); } } entryOpen_ = false; opened_ = false; entrySize_ = 0; entryRead_ = 0; callbackFile_.close(); }
+void EpubArchive::close() { if (opened_) { ScopedSpiBus bus(busGuard_, SpiBusOwner::SdCard); if (bus) { if (entryOpen_) zip_.closeCurrentFile(); zip_.closeZIP(); } } entryOpen_ = false; opened_ = false; entrySize_ = 0; entryRead_ = 0; }
 
 bool EpubArchive::readEntry(const std::string& entryPath, size_t maximumBytes, std::string& output) {
   output.clear(); error_.clear();

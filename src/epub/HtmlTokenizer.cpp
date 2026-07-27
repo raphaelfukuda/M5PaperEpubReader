@@ -5,6 +5,30 @@
 #include "layout/TextStyle.h"
 
 namespace {
+std::string tagAttribute(const std::string& tag, const char* wanted) {
+  size_t i = 0;
+  while (i < tag.size()) {
+    while (i < tag.size() && (std::isspace(static_cast<unsigned char>(tag[i])) || tag[i] == '/')) ++i;
+    const size_t nameStart = i;
+    while (i < tag.size() && !std::isspace(static_cast<unsigned char>(tag[i])) && tag[i] != '=' && tag[i] != '/') ++i;
+    std::string name = tag.substr(nameStart, i - nameStart);
+    std::transform(name.begin(), name.end(), name.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+    while (i < tag.size() && std::isspace(static_cast<unsigned char>(tag[i]))) ++i;
+    if (i >= tag.size() || tag[i] != '=') continue;
+    ++i;
+    while (i < tag.size() && std::isspace(static_cast<unsigned char>(tag[i]))) ++i;
+    if (i >= tag.size()) break;
+    const char quote = (tag[i] == '\'' || tag[i] == '"') ? tag[i++] : '\0';
+    const size_t valueStart = i;
+    if (quote) while (i < tag.size() && tag[i] != quote) ++i;
+    else while (i < tag.size() && !std::isspace(static_cast<unsigned char>(tag[i])) && tag[i] != '/') ++i;
+    const size_t prefix = name.rfind(':');
+    if (name == wanted || (prefix != std::string::npos && name.substr(prefix + 1U) == wanted))
+      return html_entities::decode(tag.substr(valueStart, i - valueStart));
+    if (quote && i < tag.size()) ++i;
+  }
+  return {};
+}
 void normalizeLayoutSpaces(std::string& text) {
   // EPUB files frequently use NBSP for visual spacing. The compact layout
   // engine needs an emergency break opportunity there; otherwise a whole
@@ -36,10 +60,19 @@ size_t incompleteUtf8SuffixLength(const std::string& text) {
 
 void HtmlTokenizer::reset() { inTag_ = false; inEntity_ = false; skipping_ = false; tag_.clear(); entity_.clear(); utf8Pending_.clear(); layoutBoundary_ = 0; }
 void HtmlTokenizer::finishTag(std::string& out) {
+  const std::string originalTag = tag_;
   std::string tag = tag_; std::transform(tag.begin(), tag.end(), tag.begin(), [](char c){ return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
   const size_t start = tag.find_first_not_of(" /\t\r\n"); const size_t end = start == std::string::npos ? start : tag.find_first_of(" /\t\r\n>", start); const std::string name = start == std::string::npos ? "" : tag.substr(start, end - start); const bool closing = tag.find('/') == tag.find_first_not_of(" \t\r\n");
   if (name == "script" || name == "style" || name == "head") skipping_ = !closing;
   if (!skipping_) {
+    if ((name == "img" || name == "image") && !closing) {
+      std::string source = tagAttribute(originalTag, "src");
+      if (source.empty() && name == "image") source = tagAttribute(originalTag, "href");
+      const size_t suffix = source.find_first_of("?#");
+      if (suffix != std::string::npos) source.resize(suffix);
+      if (!source.empty()) text_style_control::appendInlineImage(
+          out, source, tagAttribute(originalTag, "alt"));
+    }
     uint8_t style = 0;
     if (name == "p" && !closing) style = text_style_control::Paragraph;
     else if (name == "blockquote" && !closing) style = text_style_control::Blockquote;
@@ -87,6 +120,12 @@ std::string HtmlTokenizer::feed(const uint8_t* data, size_t length, bool finalCh
   char boundary = layoutBoundary_;
   for (size_t i = 0; i < out.size(); ++i) {
     if (out[i] == text_style_control::kEscape && i + 1 < out.size()) {
+      if (static_cast<uint8_t>(out[i + 1]) == text_style_control::InlineImage && i + 3 < out.size()) {
+        const size_t payload = static_cast<uint8_t>(out[i + 2]) |
+            (static_cast<size_t>(static_cast<uint8_t>(out[i + 3])) << 8);
+        i += 3 + payload;
+        continue;
+      }
       ++i;
       continue;
     }

@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <string>
 #include "epub/EpubParser.h"
 #include "epub/HtmlTokenizer.h"
@@ -28,7 +29,7 @@ class ReaderController {
   WorkResult continueLayout(uint32_t budgetUs);
   uint32_t processCpuOnlyWork(uint32_t budgetUs);
   bool hasCpuOnlyWork() const {
-    return inputReady_ || (layoutPending_ && !inputEnded_);
+    return inputReady_ || (layoutPending_ && !inputEnded_ && !imagePreparationPending_);
   }
   WorkResult requestNextPage();
   WorkResult requestPreviousPage();
@@ -52,12 +53,18 @@ class ReaderController {
   std::vector<PageAnchor> previousPageAnchors(size_t maximum) const;
   const std::string& error() const { return error_; }
   const EpubBook& book() const { return parser_.book(); }
-  M5Canvas& presentationCanvas() { return *pageCanvas_; }
+  M5Canvas& presentationCanvas() { return presentationCanvas_ ? *presentationCanvas_ : *pageCanvas_; }
+  bool pageContainsImages() const { return pageContainsImages_; }
+  void setHighQualityCanvasProvider(std::function<M5Canvas&()> provider) {
+    highQualityCanvasProvider_ = std::move(provider);
+  }
   PagePresentationSource presentationSource() const { return presentationSource_; }
  private:
   EpubParser& parser_; M5Canvas& initialCanvas_; M5Canvas* pageCanvas_; M5Canvas* freeCanvas_ = nullptr; HtmlTokenizer html_; TextLayoutEngine layout_; ReaderSettings settings_;
-  void beginBlankPage(M5Canvas& target);
-  void renderCachedPage(size_t index);
+  void beginBlankPage(M5Canvas& target, bool preserveInlineImages = false);
+  void renderCachedPage(size_t index, bool preserveInlineImages = false);
+  bool prepareInlineImages(const std::string& text);
+  bool finalizePagePresentation(bool allowHighQuality = true);
   bool commitPage();
   bool validCacheState() const;
   WorkResult failReader(const std::string& message);
@@ -68,6 +75,11 @@ class ReaderController {
   WorkResult reflowCurrentPage(uint16_t newSize);
   bool resetSession();
   bool restorePrefetchCheckpoint();
+  struct InlineImageResource {
+    std::string source, path, mediaType, data;
+    uint32_t width = 0, height = 0;
+  };
+  const InlineImageResource* findInlineImage(const std::string& source) const;
   std::string chapterPath_, error_, pendingText_, workingText_;
   std::vector<std::string> visitedPages_;
   std::vector<PageAnchor> pageAnchors_;
@@ -85,7 +97,12 @@ class ReaderController {
   uint8_t inputBuffer_[1024]{};
   size_t inputLength_ = 0;
   bool inputReady_ = false, inputEnded_ = false, layoutPending_ = false;
+  bool imagePreparationPending_ = false;
   size_t rebuildingPage_ = static_cast<size_t>(-1);
   bool active_ = false, chapterEnded_ = false, prefetching_ = false;
   bool prefetchCanvasReady_ = false, endOfBook_ = false;
+  bool pageContainsImages_ = false, prefetchedPageContainsImages_ = false;
+  M5Canvas* presentationCanvas_ = nullptr;
+  std::function<M5Canvas&()> highQualityCanvasProvider_;
+  std::vector<InlineImageResource> inlineImages_;
 };

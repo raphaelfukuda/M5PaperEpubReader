@@ -4,8 +4,32 @@
 #include "XmlTokenizer.h"
 #include "storage/PathUtils.h"
 #include "EpubContentDiscovery.h"
+#include <esp_heap_caps.h>
+#include <new>
 
-bool EpubParser::start(const std::string& filePath) { archive_.close(); book_ = {}; book_.filePath = filePath; buffer_.clear(); error_.clear(); tocError_.clear(); tocDocument_ = {}; measureSpineIndex_ = 0; phase_ = Phase::OpenArchive; return true; }
+EpubParser::~EpubParser() {
+  if (resourceArchive_) {
+    resourceArchive_->~EpubArchive();
+    heap_caps_free(resourceArchive_);
+  }
+}
+
+bool EpubParser::start(const std::string& filePath) { archive_.close(); if (resourceArchive_) resourceArchive_->close(); resourceArchiveOpen_ = false; book_ = {}; book_.filePath = filePath; buffer_.clear(); error_.clear(); tocError_.clear(); tocDocument_ = {}; measureSpineIndex_ = 0; phase_ = Phase::OpenArchive; return true; }
+
+bool EpubParser::readResource(const std::string& path, size_t maximumBytes,
+                              std::string& output) {
+  if (!resourceArchiveOpen_) {
+    if (!resourceArchive_) {
+      void* memory = heap_caps_malloc(sizeof(EpubArchive),
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!memory) return false;
+      resourceArchive_ = new (memory) EpubArchive(guard_);
+    }
+    if (!resourceArchive_->open(book_.filePath)) return false;
+    resourceArchiveOpen_ = true;
+  }
+  return resourceArchive_->readEntry(path, maximumBytes, output);
+}
 void EpubParser::fail(const std::string& message) { error_ = message; phase_ = Phase::Failed; archive_.close(); }
 
 bool EpubParser::metadataReady() const {

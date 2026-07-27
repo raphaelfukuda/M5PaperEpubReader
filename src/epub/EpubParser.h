@@ -7,7 +7,8 @@
 
 class EpubParser {
  public:
-  explicit EpubParser(SpiBusGuard& guard) : archive_(guard) {}
+  explicit EpubParser(SpiBusGuard& guard) : guard_(guard), archive_(guard) {}
+  ~EpubParser();
   bool start(const std::string& filePath);
   WorkResult processNextChunk();
   bool metadataReady() const;
@@ -15,13 +16,18 @@ class EpubParser {
   const std::string& error() const { return error_; }
   const std::string& tocError() const { return tocError_; }
   EpubArchive& archive() { return archive_; }
+  bool readResource(const std::string& path, size_t maximumBytes,
+                    std::string& output);
  private:
   enum class Phase { Idle, OpenArchive, ReadContainer, ParseContainer, ReadOpf,
                      ParseOpf, MeasureSpine, ReadToc, ParseToc, Done, Failed };
   bool parseContainer();
   bool parseOpf();
   void fail(const std::string& message);
+  SpiBusGuard& guard_;
   EpubArchive archive_;
+  EpubArchive* resourceArchive_ = nullptr;
+  bool resourceArchiveOpen_ = false;
   EpubBook book_;
   std::string buffer_;
   std::string error_;

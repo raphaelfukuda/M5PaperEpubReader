@@ -14,6 +14,9 @@ constexpr char kKeys[] = "1234567890QWERTYUIOPASDFGHJKL_ZXCVBNM-";
 }
 
 void WebPortalView::renderNetworks(const WifiService& wifi) {
+  Serial.printf("M5EPUB_WIFI,event=render_networks,state=%u,visible_count=%u\n",
+                static_cast<unsigned>(wifi.state()),
+                static_cast<unsigned>(wifi.networks().size()));
   M5Canvas& canvas = display_.canvas();
   canvas.fillScreen(TFT_WHITE);
   canvas.setTextColor(TFT_BLACK, TFT_WHITE);
@@ -28,6 +31,14 @@ void WebPortalView::renderNetworks(const WifiService& wifi) {
   if (wifi.state() == WifiState::Scanning) {
     const std::string scanning = pt ? "Procurando redes..." : "Scanning networks...";
     portuguese_text::draw(canvas, scanning, 34, 145);
+  } else if (wifi.state() == WifiState::Failed) {
+    const std::string failed = pt ? "Não foi possível buscar redes:" :
+                                    "Could not scan networks:";
+    portuguese_text::draw(canvas, failed, 34, 145);
+    portuguese_text::draw(canvas, wifi.lastError(), 34, 190);
+    const std::string retry = pt ? "Toque em Buscar novamente." :
+                                   "Tap Scan again.";
+    portuguese_text::draw(canvas, retry, 34, 235);
   } else {
     const size_t count = std::min(wifi.networks().size(), kVisibleNetworks);
     for (size_t index = 0; index < count; ++index) {

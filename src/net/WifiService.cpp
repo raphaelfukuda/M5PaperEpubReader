@@ -82,17 +82,17 @@ bool WifiService::beginScan() {
   loadSaved();
   if (state_ == WifiState::Scanning || state_ == WifiState::Connecting) return false;
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   WiFi.disconnect(false, false);
   WiFi.scanDelete();
-  if (WiFi.scanNetworks(true, false) == WIFI_SCAN_FAILED) {
-    state_ = WifiState::Failed;
-    lastError_ = "Wi-Fi scan failed";
-    return false;
-  }
   networks_.clear();
   lastError_.clear();
   stateStartedMs_ = millis();
+  scanLaunched_ = false;
+  scanPhase_ = 1;
+  scanRetries_ = 0;
   state_ = WifiState::Scanning;
+  Serial.println("M5EPUB_WIFI,event=scan_requested");
   return true;
 }
 
@@ -121,8 +121,9 @@ void WifiService::finishScan() {
         if (left.saved != right.saved) return left.saved > right.saved;
         return left.rssi > right.rssi;
       });
-  WiFi.scanDelete();
   state_ = WifiState::ScanDone;
+  Serial.printf("M5EPUB_WIFI,event=results_ready,visible_count=%u\n",
+                static_cast<unsigned>(networks_.size()));
 }
 
 bool WifiService::connect(const std::string& ssid,
@@ -160,17 +161,74 @@ void WifiService::remember(const std::string& ssid,
 
 void WifiService::poll(uint32_t nowMs) {
   if (state_ == WifiState::Scanning) {
+    // The ESP32 radio needs a short cooperative settling period after WIFI_OFF
+    // -> WIFI_STA. Starting the asynchronous scan in the same call can return
+    // WIFI_SCAN_FAILED on the original M5Paper.
+    if (!scanLaunched_) {
+      if (nowMs - stateStartedMs_ < 1000) return;
+      // Passive scanning avoids the intermittent zero-result active scan seen
+      // on the original ESP32-D0WDQ6 after M5Unified initializes the board.
+      // It remains asynchronous; 500 ms/channel is bounded by our outer timeout.
+      const int started = WiFi.scanNetworks(true, false, true, 500);
+      if (started == WIFI_SCAN_FAILED) {
+        if (scanRetries_++ < 2) {
+          WiFi.scanDelete();
+          stateStartedMs_ = nowMs;
+          scanPhase_ = 1;
+          Serial.printf("M5EPUB_WIFI,event=scan_retry,attempt=%u\n",
+                        static_cast<unsigned>(scanRetries_));
+          return;
+        }
+        state_ = WifiState::Failed;
+        lastError_ = "Wi-Fi scan could not start";
+        Serial.println("M5EPUB_WIFI,event=scan_failed,phase=start");
+        return;
+      }
+      scanLaunched_ = true;
+      stateStartedMs_ = nowMs;
+      Serial.println("M5EPUB_WIFI,event=scan_started,mode=passive");
+      return;
+    }
     const int result = WiFi.scanComplete();
-    if (result >= 0) finishScan();
-    else if (result == WIFI_SCAN_FAILED ||
-             nowMs - stateStartedMs_ >= app_config::kWifiScanTimeoutMs) {
+    if (result > 0) {
+      Serial.printf("M5EPUB_WIFI,event=scan_completed,count=%d\n", result);
+      finishScan();
+    } else if (result == 0) {
+      if (scanRetries_++ < 2) {
+        WiFi.scanDelete();
+        scanLaunched_ = false;
+        scanPhase_ = 1;
+        stateStartedMs_ = nowMs;
+        Serial.printf("M5EPUB_WIFI,event=scan_retry,attempt=%u,reason=empty\n",
+                      static_cast<unsigned>(scanRetries_));
+      } else {
+        state_ = WifiState::Failed;
+        lastError_ = "No Wi-Fi networks found";
+        Serial.println("M5EPUB_WIFI,event=scan_failed,phase=empty");
+      }
+    } else if (result == WIFI_SCAN_FAILED) {
+      if (scanRetries_++ < 2) {
+        WiFi.scanDelete();
+        scanLaunched_ = false;
+        scanPhase_ = 1;
+        stateStartedMs_ = nowMs;
+        Serial.printf("M5EPUB_WIFI,event=scan_retry,attempt=%u\n",
+                      static_cast<unsigned>(scanRetries_));
+      } else {
+        state_ = WifiState::Failed;
+        lastError_ = "Wi-Fi scan failed";
+        Serial.println("M5EPUB_WIFI,event=scan_failed,phase=poll");
+      }
+    } else if (nowMs - stateStartedMs_ >= app_config::kWifiScanTimeoutMs) {
       WiFi.scanDelete();
       state_ = WifiState::Failed;
       lastError_ = "Wi-Fi scan timed out";
+      Serial.println("M5EPUB_WIFI,event=scan_failed,phase=timeout");
     }
   } else if (state_ == WifiState::Connecting) {
     if (WiFi.status() == WL_CONNECTED) {
       state_ = WifiState::Connected;
+      connectionLostSinceMs_ = 0;
       if (rememberPending_) remember(activeSsid_, pendingPassword_);
       pendingPassword_.clear();
       rememberPending_ = false;
@@ -179,9 +237,24 @@ void WifiService::poll(uint32_t nowMs) {
       state_ = WifiState::Failed;
       WiFi.disconnect(true, false);
     }
-  } else if (state_ == WifiState::Connected && WiFi.status() != WL_CONNECTED) {
-    state_ = WifiState::Failed;
-    lastError_ = "Wi-Fi connection lost";
+  } else if (state_ == WifiState::Connected) {
+    const wl_status_t status = WiFi.status();
+    if (status == WL_CONNECTED) {
+      if (connectionLostSinceMs_)
+        Serial.printf("M5EPUB_WIFI,event=connection_recovered,duration_ms=%lu\n",
+                      static_cast<unsigned long>(nowMs - connectionLostSinceMs_));
+      connectionLostSinceMs_ = 0;
+    } else if (!connectionLostSinceMs_) {
+      connectionLostSinceMs_ = nowMs ? nowMs : 1;
+      Serial.printf("M5EPUB_WIFI,event=connection_unstable,status=%u\n",
+                    static_cast<unsigned>(status));
+    } else if (nowMs - connectionLostSinceMs_ >= 10000) {
+      state_ = WifiState::Failed;
+      lastError_ = "Wi-Fi connection lost";
+      Serial.printf("M5EPUB_WIFI,event=connection_lost,status=%u,duration_ms=%lu\n",
+                    static_cast<unsigned>(status),
+                    static_cast<unsigned long>(nowMs - connectionLostSinceMs_));
+    }
   }
 }
 
@@ -210,10 +283,13 @@ void WifiService::stop() {
   WiFi.disconnect(true, false);
   WiFi.mode(WIFI_OFF);
   state_ = WifiState::Off;
+  scanLaunched_ = false;
+  scanPhase_ = 0;
   networks_.clear();
   activeSsid_.clear();
   pendingPassword_.clear();
   rememberPending_ = false;
+  connectionLostSinceMs_ = 0;
 }
 
 std::string WifiService::ip() const {

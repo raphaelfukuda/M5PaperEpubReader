@@ -140,6 +140,7 @@ class AppController {
   uint32_t manualRefreshQueuedUs_ = 0;
   void requestManualRefresh();
   void serviceManualRefresh();
+  void renderCurrentReaderPage();
 #if M5EPUB_ENABLE_WEB_PORTAL
   void requestPortalStart(bool showNetworkScreen);
   void servicePortal();

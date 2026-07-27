@@ -2,6 +2,9 @@
 #include "AppConfig.h"
 #include <algorithm>
 #include "display/CanvasMemoryPolicy.h"
+#include "epub/EpubContentDiscovery.h"
+#include "storage/PathUtils.h"
+#include "ui/CoverRenderer.h"
 #include <esp_heap_caps.h>
 
 bool ReaderController::resetSession() {
@@ -38,6 +41,26 @@ bool ReaderController::resetSession() {
   pageCanvasState_ = CanvasState::Displayed;
   freeCanvasState_ = CanvasState::Free;
   presentationSource_ = PagePresentationSource::ExistingFrontBuffer;
+  presentationCanvas_ = nullptr; pageContainsImages_ = false;
+  prefetchedPageContainsImages_ = false; imagePreparationPending_ = false;
+  inlineImages_.clear();
+  layout_.setInlineImageHandlers(
+      [this](const std::string& source, uint32_t& width, uint32_t& height) {
+        const InlineImageResource* image = findInlineImage(source);
+        if (!image) return false;
+        width = image->width; height = image->height; return true;
+      },
+      [this](M5Canvas& canvas, const std::string& source, int32_t x, int32_t y,
+             int32_t width, int32_t height) {
+        const InlineImageResource* image = findInlineImage(source);
+        if (!image) return false;
+        // The 1-bit canvas is only the pagination/back-buffer pass. Decoding
+        // and ordered dithering here was expensive and its pixels were thrown
+        // away when the same page was rendered into the quality canvas.
+        if (static_cast<uint8_t>(canvas.getColorDepth()) <= 1U) return true;
+        return drawCoverImage(canvas, image->data, image->mediaType,
+                              x, y, width, height);
+      });
   return true;
 }
 
@@ -113,7 +136,57 @@ bool ReaderController::openNextLinearSpine() {
   return true;
 }
 
-void ReaderController::beginBlankPage(M5Canvas& target) { layout_.begin(target, settings_); workingText_.clear(); }
+void ReaderController::beginBlankPage(M5Canvas& target,
+                                      bool preserveInlineImages) {
+  layout_.begin(target, settings_); workingText_.clear();
+  if (!preserveInlineImages) inlineImages_.clear();
+  presentationCanvas_ = nullptr; pageContainsImages_ = false;
+}
+
+const ReaderController::InlineImageResource* ReaderController::findInlineImage(
+    const std::string& source) const {
+  for (const auto& image : inlineImages_) if (image.source == source) return &image;
+  return nullptr;
+}
+
+bool ReaderController::prepareInlineImages(const std::string& text) {
+  size_t offset = 0;
+  while ((offset = text.find(text_style_control::kEscape, offset)) != std::string::npos) {
+    if (offset + 1U >= text.size() || static_cast<uint8_t>(text[offset + 1U]) != text_style_control::InlineImage) { offset += 2U; continue; }
+    std::string source, alternative; size_t markerLength = 0;
+    if (!text_style_control::decodeInlineImage(text, offset, source, alternative, markerLength)) break;
+    offset += markerLength;
+    if (findInlineImage(source) || inlineImages_.size() >= app_config::kMaximumInlineImagesPerPage) continue;
+    const std::string resolved = path_utils::resolveRelative(chapterPath_, source);
+    if (resolved.empty()) continue;
+    std::string mediaType;
+    for (const auto& item : parser_.book().manifest)
+      if (item.href == resolved && (item.mediaType == "image/jpeg" || item.mediaType == "image/png")) { mediaType = item.mediaType; break; }
+    if (mediaType.empty()) continue;
+    InlineImageResource image;
+    image.source = source; image.path = resolved; image.mediaType = mediaType;
+    if (!parser_.readResource(resolved, app_config::kMaximumInlineImageBytes, image.data)) {
+      Serial.printf("M5EPUB_IMAGE,status=load_failed,path=%s\n", resolved.c_str()); continue;
+    }
+    if (!epub_content::imageDimensions(reinterpret_cast<const uint8_t*>(image.data.data()), image.data.size(), mediaType, image.width, image.height)) continue;
+    Serial.printf("M5EPUB_IMAGE,status=ready,path=%s,width=%lu,height=%lu,bytes=%u\n", resolved.c_str(), static_cast<unsigned long>(image.width), static_cast<unsigned long>(image.height), static_cast<unsigned>(image.data.size()));
+    inlineImages_.push_back(std::move(image));
+  }
+  return true;
+}
+
+bool ReaderController::finalizePagePresentation(bool allowHighQuality) {
+  pageContainsImages_ = layout_.pageContainsImage();
+  if (!pageContainsImages_ || !allowHighQuality || !highQualityCanvasProvider_) return true;
+  M5Canvas& quality = highQualityCanvasProvider_();
+  layout_.begin(quality, settings_);
+  const size_t consumed = layout_.processText(workingText_);
+  layout_.finish();
+  if (consumed != workingText_.size() || !layout_.pageContainsImage()) return false;
+  presentationCanvas_ = &quality;
+  Serial.println("M5EPUB_IMAGE,status=page_quality_canvas");
+  return true;
+}
 bool ReaderController::validCacheState() const { return visitedPages_.size() == pageAnchors_.size() && (visitedPages_.empty() || currentPage_ < visitedPages_.size()); }
 
 WorkResult ReaderController::failReader(const std::string& message) {
@@ -151,7 +224,7 @@ bool ReaderController::commitPage() {
   }
   return validCacheState();
 }
-void ReaderController::renderCachedPage(size_t index) { beginBlankPage(*pageCanvas_); layout_.processText(visitedPages_[index]); layout_.finish(); currentPage_ = index; presentationSource_ = PagePresentationSource::TextCacheRender; }
+void ReaderController::renderCachedPage(size_t index, bool preserveInlineImages) { beginBlankPage(*pageCanvas_, preserveInlineImages); if (!preserveInlineImages) prepareInlineImages(visitedPages_[index]); workingText_ = visitedPages_[index]; layout_.processText(workingText_); layout_.finish(); finalizePagePresentation(); currentPage_ = index; presentationSource_ = PagePresentationSource::TextCacheRender; }
 
 bool ReaderController::redrawCurrentPage() {
   if (currentPage_ >= visitedPages_.size() || visitedPages_[currentPage_].empty())
@@ -180,7 +253,10 @@ WorkResult ReaderController::processNextChunk() {
                                        : failReader("Falha ao restaurar prefetch");
   if (!active_) return error_.empty() ? WorkResult::Idle : WorkResult::Failed;
   if (inputReady_) return processBufferedInput(app_config::kCpuWorkBudgetPerTickUs);
-  if (layoutPending_) return continueLayout(app_config::kCpuWorkBudgetPerTickUs);
+  if (layoutPending_) {
+    if (imagePreparationPending_) { prepareInlineImages(pendingText_); imagePreparationPending_ = false; }
+    return continueLayout(app_config::kCpuWorkBudgetPerTickUs);
+  }
   return readInputChunk();
 }
 
@@ -201,6 +277,9 @@ WorkResult ReaderController::processBufferedInput(uint32_t budgetUs) {
   if (!active_ || !inputReady_) return WorkResult::Idle;
   if (prefetching_) prefetchState_.transition(PrefetchState::Parsing);
   pendingText_ += html_.feed(inputBuffer_, inputLength_, inputEnded_);
+  imagePreparationPending_ = pendingText_.find(
+      std::string{text_style_control::kEscape,
+                  static_cast<char>(text_style_control::InlineImage)}) != std::string::npos;
   inputReady_ = false;
   inputLength_ = 0;
   if (seekTextBytes_ != 0) {
@@ -222,8 +301,8 @@ WorkResult ReaderController::continueLayout(uint32_t budgetUs) {
   if (prefetching_) prefetchState_.transition(PrefetchState::LayingOut);
   const size_t consumed = layout_.processText(pendingText_); workingText_.append(pendingText_, 0, consumed); pendingText_.erase(0, consumed);
   layoutPending_ = false;
-  if (layout_.pageFull()) { const bool wasPrefetching = prefetching_; inputEnded_ = false; if (!commitPage()) return failReader(error_); active_ = false; prefetching_ = false; if (wasPrefetching) { prefetchState_.transition(PrefetchState::Ready); freeCanvasState_ = CanvasState::Ready; } return WorkResult::Completed; }
-  if (inputEnded_) { const bool wasPrefetching = prefetching_; inputEnded_ = false; chapterEnded_ = true; layout_.finish(); if ((!workingText_.empty() || visitedPages_.empty()) && !commitPage()) return failReader(error_); if (!parser_.archive().endEntry()) return failReader(parser_.archive().error()); active_ = false; prefetching_ = false; if (wasPrefetching) { prefetchState_.transition(PrefetchState::Ready); freeCanvasState_ = CanvasState::Ready; } return WorkResult::Completed; }
+  if (layout_.pageFull()) { const bool wasPrefetching = prefetching_; inputEnded_ = false; if (!commitPage()) return failReader(error_); finalizePagePresentation(!wasPrefetching); if (wasPrefetching) prefetchedPageContainsImages_ = pageContainsImages_; active_ = false; prefetching_ = false; if (wasPrefetching) { prefetchState_.transition(PrefetchState::Ready); freeCanvasState_ = CanvasState::Ready; } return WorkResult::Completed; }
+  if (inputEnded_) { const bool wasPrefetching = prefetching_; inputEnded_ = false; chapterEnded_ = true; layout_.finish(); if ((!workingText_.empty() || visitedPages_.empty()) && !commitPage()) return failReader(error_); finalizePagePresentation(!wasPrefetching); if (wasPrefetching) prefetchedPageContainsImages_ = pageContainsImages_; if (!parser_.archive().endEntry()) return failReader(parser_.archive().error()); active_ = false; prefetching_ = false; if (wasPrefetching) { prefetchState_.transition(PrefetchState::Ready); freeCanvasState_ = CanvasState::Ready; } return WorkResult::Completed; }
   if (prefetching_) prefetchState_.transition(PrefetchState::ReadingInput);
   return WorkResult::MoreWork;
 }
@@ -249,7 +328,7 @@ WorkResult ReaderController::prepareUncachedPage(M5Canvas& target) {
     if (!openNextLinearSpine()) return error_.empty() ? WorkResult::Idle : WorkResult::Failed;
   }
   beginBlankPage(target);
-  if (!pendingText_.empty()) { const size_t consumed = layout_.processText(pendingText_); workingText_.append(pendingText_, 0, consumed); pendingText_.erase(0, consumed); if (layout_.pageFull()) { if (!commitPage()) return failReader(error_); return WorkResult::Completed; } }
+  if (!pendingText_.empty()) { prepareInlineImages(pendingText_); const size_t consumed = layout_.processText(pendingText_); workingText_.append(pendingText_, 0, consumed); pendingText_.erase(0, consumed); if (layout_.pageFull()) { if (!commitPage()) return failReader(error_); finalizePagePresentation(!prefetching_); return WorkResult::Completed; } }
   active_ = true; return WorkResult::MoreWork;
 }
 
@@ -264,8 +343,10 @@ WorkResult ReaderController::requestNextPage() {
       pageCanvasState_ = CanvasState::Displayed;
       freeCanvasState_ = CanvasState::Free;
       ++currentPage_;
+      if (prefetchedPageContainsImages_) renderCachedPage(currentPage_, true);
       presentationSource_ = PagePresentationSource::ReadyBackBuffer;
       prefetchState_.reset();
+      prefetchedPageContainsImages_ = false;
       Serial.println("M5EPUB_BUFFER,swap=1,presentation_source=ready_back_buffer");
       return WorkResult::Completed;
     }
@@ -286,6 +367,7 @@ WorkResult ReaderController::requestPrefetch() {
   freeCanvasState_ = CanvasState::Rendering;
   const WorkResult result = prepareUncachedPage(*freeCanvas_);
   if (result == WorkResult::Completed) {
+    prefetchedPageContainsImages_ = pageContainsImages_;
     prefetching_ = false;
     prefetchState_.transition(PrefetchState::Ready);
     freeCanvasState_ = CanvasState::Ready;
@@ -310,6 +392,7 @@ void ReaderController::invalidateReadyPrefetch() {
   if (!prefetchState_.ready()) return;
   prefetchState_.reset();
   freeCanvasState_ = CanvasState::Free;
+  prefetchedPageContainsImages_ = false;
   Serial.println("M5EPUB_BUFFER,ready_invalidated=1");
 }
 
@@ -321,6 +404,7 @@ bool ReaderController::restorePrefetchCheckpoint() {
   }
   active_ = false;
   prefetching_ = false;
+  prefetchedPageContainsImages_ = false;
   freeCanvasState_ = CanvasState::Free;
   pendingText_.clear();
   workingText_.clear();

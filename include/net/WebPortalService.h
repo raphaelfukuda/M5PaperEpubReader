@@ -47,7 +47,13 @@ class WebPortalService {
   void end();
   bool running() const { return running_; }
   bool uploadActive() const { return uploadGuardHeld_; }
-  uint32_t idleMs(uint32_t nowMs) const { return nowMs - lastRequestMs_; }
+  uint32_t idleMs(uint32_t nowMs) const {
+    const uint32_t elapsed = nowMs - lastRequestMs_;
+    // A request handled in poll() can update lastRequestMs_ a few milliseconds
+    // after the AppController captured its tick timestamp. Treat that ordering
+    // as zero idle time instead of unsigned underflow (~49 days).
+    return elapsed > 0x7FFFFFFFUL ? 0 : elapsed;
+  }
   const PortalStatus& status() const { return status_; }
 
  private:

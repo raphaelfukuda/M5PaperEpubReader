@@ -69,7 +69,11 @@ class WifiService {
   std::string lastError_;
   bool rememberPending_ = false;
   bool savedLoaded_ = false;
+  bool scanLaunched_ = false;
+  uint8_t scanPhase_ = 0;
+  uint8_t scanRetries_ = 0;
   uint32_t stateStartedMs_ = 0;
+  uint32_t connectionLostSinceMs_ = 0;
 };
 
 #endif
