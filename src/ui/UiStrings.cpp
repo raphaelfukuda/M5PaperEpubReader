@@ -15,7 +15,8 @@ const Text english = {
     "Tap to return", "Enter sleep mode", "Sleep Mode",
     "Use the font lever to wake", "Loading...", "Library menu",
     "Prepare library covers", "This may take a long time.", "Start preparing",
-    "Finding books...", "Preparing covers", "Completed"};
+    "Finding books...", "Preparing covers", "Completed",
+    "Upload server", "Off", "On", "connecting", "Wi-Fi networks"};
 
 const Text portuguese = {
     "Biblioteca", "Lendo diretorio...", "Nenhuma pasta ou EPUB encontrado",
@@ -29,7 +30,8 @@ const Text portuguese = {
     "Modo de espera (Sleep Mode)", "Use a alavanca de fonte para acordar",
     "Carregando...", "Menu da biblioteca", "Preparar capas da biblioteca",
     "Esta operação pode demorar bastante.", "Iniciar preparação",
-    "Procurando livros...", "Preparando capas", "Concluído"};
+    "Procurando livros...", "Preparando capas", "Concluído",
+    "Servidor de envio", "Desligado", "Ligado", "conectando", "Redes Wi-Fi"};
 }  // namespace
 
 const Text& get() { return currentLanguage == UiLanguage::Portuguese ? portuguese : english; }

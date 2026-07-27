@@ -301,7 +301,10 @@ void FileBrowserView::showBookError(const std::string& message) {
   canvas.drawString(truncateToWidth(message, display_.width() - 40).c_str(), display_.width() / 2, 300); canvas.drawString(ui_strings::get().touchToReturn, display_.width() / 2, 420); display_.submitFull(RefreshIntent::FullQuality);
 }
 
-void FileBrowserView::renderLibraryMenu(bool confirmation) {
+void FileBrowserView::renderLibraryMenu(bool confirmation,
+                                        const char* uploadState,
+                                        const char* portalAddress,
+                                        bool partialPortalUpdate) {
   M5Canvas& canvas = display_.canvas();
   canvas.fillScreen(TFT_WHITE);
   canvas.setTextColor(TFT_BLACK, TFT_WHITE);
@@ -341,12 +344,30 @@ void FileBrowserView::renderLibraryMenu(bool confirmation) {
     portuguese_text::draw(canvas, text.prefetchCard,
         (display_.width() - portuguese_text::width(canvas, text.prefetchCard)) / 2,
         207);
+    canvas.drawRect(45, 315, display_.width() - 90, 105, TFT_BLACK);
+    std::string uploadLabel = std::string(text.uploadServer) + ": " +
+        (uploadState ? uploadState : text.uploadOff);
+    portuguese_text::draw(canvas, uploadLabel,
+        (display_.width() - portuguese_text::width(canvas, uploadLabel)) / 2, 340);
+    if (portalAddress && portalAddress[0]) {
+      canvas.setFont(reader_font::forSize(14, ReaderFontFamily::Compact));
+      portuguese_text::draw(canvas, portalAddress,
+          (display_.width() - portuguese_text::width(canvas, portalAddress)) / 2, 380);
+      canvas.setFont(reader_font::forSize(16, ReaderFontFamily::Compact));
+    }
+    canvas.drawRect(45, 470, display_.width() - 90, 82, TFT_BLACK);
+    portuguese_text::draw(canvas, text.wifiNetworks,
+        (display_.width() - portuguese_text::width(canvas, text.wifiNetworks)) / 2, 500);
     canvas.drawRect(45, 700, display_.width() - 90, 82, TFT_BLACK);
     portuguese_text::draw(canvas, text.closeMenu,
         (display_.width() - portuguese_text::width(canvas, text.closeMenu)) / 2,
         730);
   }
-  display_.submitFull(RefreshIntent::FullQuality);
+  if (partialPortalUpdate)
+    display_.submitRegion(canvas, 35, 300, display_.width() - 70, 265,
+                          RefreshIntent::InteractiveFeedback);
+  else
+    display_.submitFull(RefreshIntent::FullQuality);
 }
 
 void FileBrowserView::renderPrefetchProgress(bool scanning, size_t completed,

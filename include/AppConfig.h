@@ -11,6 +11,9 @@
 #ifndef M5EPUB_ENABLE_LAYOUT_WORKER
 #define M5EPUB_ENABLE_LAYOUT_WORKER 0
 #endif
+#ifndef M5EPUB_ENABLE_WEB_PORTAL
+#define M5EPUB_ENABLE_WEB_PORTAL 0
+#endif
 
 namespace app_config {
 constexpr uint32_t kSerialBaud = 115200;
@@ -23,6 +26,9 @@ constexpr int8_t kSharedSpiMosi = 12;
 constexpr uint32_t kSdFrequencyHz = 25000000;
 constexpr uint32_t kIdleYieldIntervalMs = 2;
 constexpr uint32_t kSleepAfterInactivityMs = 10UL * 60UL * 1000UL;
+constexpr uint32_t kPortalIdleTimeoutMs = 8UL * 60UL * 1000UL;
+constexpr uint32_t kWifiScanTimeoutMs = 15000;
+constexpr uint32_t kWifiConnectTimeoutMs = 20000;
 constexpr gpio_num_t kIncreaseFontButtonPin = GPIO_NUM_37;
 constexpr gpio_num_t kDecreaseFontButtonPin = GPIO_NUM_39;
 constexpr uint16_t kTouchMarkerRadius = 18;

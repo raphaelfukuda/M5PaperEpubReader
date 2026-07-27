@@ -20,6 +20,11 @@
 #include "storage/PersistPolicy.h"
 #include "storage/LibraryThumbnailCache.h"
 #include "AppConfig.h"
+#if M5EPUB_ENABLE_WEB_PORTAL
+#include "net/WifiService.h"
+#include "net/WebPortalService.h"
+#include "ui/WebPortalView.h"
+#endif
 
 class AppController {
  public:
@@ -44,6 +49,21 @@ class AppController {
   ReaderController reader_{epubParser_, display_.canvas()};
   ReaderView readerView_{display_};
   ReaderMenuView readerMenuView_{display_};
+#if M5EPUB_ENABLE_WEB_PORTAL
+  WifiService wifi_;
+  WebPortalService portal_{SD};
+  WebPortalView webPortalView_{display_};
+  PortalStatus portalStatus_;
+  bool portalStatusDirty_ = false;
+  bool portalStartRequested_ = false;
+  bool portalNetworkScreenRequested_ = false;
+  bool portalNetworksRenderPending_ = false;
+  bool portalLibraryChanged_ = false;
+  bool portalRememberPassword_ = true;
+  std::string portalSelectedSsid_;
+  std::string portalPassword_;
+  uint32_t portalFailureStartedMs_ = 0;
+#endif
   std::string currentPath_ = "/";
   bool browserDirty_ = false;
   bool bookSelected_ = false;
@@ -120,4 +140,12 @@ class AppController {
   uint32_t manualRefreshQueuedUs_ = 0;
   void requestManualRefresh();
   void serviceManualRefresh();
+#if M5EPUB_ENABLE_WEB_PORTAL
+  void requestPortalStart(bool showNetworkScreen);
+  void servicePortal();
+  void startHttpPortal();
+  void stopUploadServer();
+  void handleWebPortalEvent(const AppEvent& event);
+  void renderLibraryPortalState(bool partial = false);
+#endif
 };

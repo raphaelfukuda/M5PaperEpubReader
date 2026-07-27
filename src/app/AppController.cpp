@@ -7,6 +7,9 @@
 #include <SD.h>
 #include <esp_heap_caps.h>
 #include <new>
+#if M5EPUB_ENABLE_WEB_PORTAL
+#include <ESPmDNS.h>
+#endif
 #include "AppConfig.h"
 #include "UiStrings.h"
 #include "diagnostics/Logger.h"
@@ -64,6 +67,9 @@ void AppController::begin() {
 void AppController::tick() {
   M5.update();
   display_.pollPanelTiming();
+#if M5EPUB_ENABLE_WEB_PORTAL
+  servicePortal();
+#endif
   const AppEvent event = touch_.poll();
   const bool increasePressed = M5.BtnA.wasPressed();
   const bool centerPressed = M5.BtnB.wasPressed();
@@ -85,6 +91,11 @@ void AppController::tick() {
     handleLibraryMenuEvent(event);
   else if (state_ == AppState::Reading) handleReaderEvent(event);
   else if (state_ == AppState::ReaderMenu) handleReaderMenuEvent(event);
+#if M5EPUB_ENABLE_WEB_PORTAL
+  else if (state_ == AppState::WebPortalNetworks ||
+           state_ == AppState::WebPortalPassword)
+    handleWebPortalEvent(event);
+#endif
   else if (state_ == AppState::ErrorDialog &&
            event.type == AppEventType::Tap && bookSelected_) {
     state_ = AppState::FileBrowser; bookSelected_ = false;
@@ -429,6 +440,10 @@ void AppController::handleReaderMenuEvent(const AppEvent& event) {
 }
 
 bool AppController::canEnterAutomaticSleep() const {
+#if M5EPUB_ENABLE_WEB_PORTAL
+  if (portal_.running() || wifi_.state() == WifiState::Scanning ||
+      wifi_.state() == WifiState::Connecting) return false;
+#endif
   if (M5.Display.displayBusy() || scanner_.isRunning() || reader_.isPrefetching())
     return false;
   return state_ == AppState::FileBrowser || state_ == AppState::Reading ||
@@ -667,7 +682,20 @@ void AppController::handleLibraryMenuEvent(const AppEvent& event) {
     if (event.y >= 170 && event.y < 270) {
       state_ = AppState::LibraryPrefetchConfirm;
       browserView_.renderLibraryMenu(true);
-    } else if (event.y >= 700 && event.y < 782) {
+    }
+#if M5EPUB_ENABLE_WEB_PORTAL
+    else if (event.y >= 315 && event.y < 420) {
+      if (portal_.running() || wifi_.state() == WifiState::Connected ||
+          wifi_.state() == WifiState::Connecting ||
+          wifi_.state() == WifiState::Scanning)
+        stopUploadServer();
+      else
+        requestPortalStart(false);
+    } else if (event.y >= 470 && event.y < 552) {
+      requestPortalStart(true);
+    }
+#endif
+    else if (event.y >= 700 && event.y < 782) {
       state_ = AppState::FileBrowser;
       browserDirty_ = true;
       scheduleLibraryPreviews();
@@ -678,13 +706,221 @@ void AppController::handleLibraryMenuEvent(const AppEvent& event) {
     if (event.y >= 390 && event.y < 472) beginCardPrefetch();
     else if (event.y >= 545 && event.y < 627) {
       state_ = AppState::LibraryMenu;
+#if M5EPUB_ENABLE_WEB_PORTAL
+      renderLibraryPortalState(false);
+#else
       browserView_.renderLibraryMenu(false);
+#endif
     }
     return;
   }
   if (state_ == AppState::LibraryPrefetch && event.y >= 700 && event.y < 782)
     finishCardPrefetch(cardPrefetchPhase_ != CardPrefetchPhase::Done);
 }
+
+#if M5EPUB_ENABLE_WEB_PORTAL
+void AppController::requestPortalStart(bool showNetworkScreen) {
+  if (portal_.running()) portal_.end();
+  power_.enableRadio();
+  portalStartRequested_ = !showNetworkScreen;
+  portalNetworkScreenRequested_ = showNetworkScreen;
+  portalNetworksRenderPending_ = showNetworkScreen;
+  portalFailureStartedMs_ = 0;
+  if (!wifi_.beginScan()) {
+    stopUploadServer();
+    return;
+  }
+  if (showNetworkScreen) {
+    state_ = AppState::WebPortalNetworks;
+    webPortalView_.renderNetworks(wifi_);
+  } else {
+    renderLibraryPortalState(true);
+  }
+}
+
+void AppController::startHttpPortal() {
+  WebPortalService::Hooks hooks;
+  hooks.acquireSd = [this]() {
+    display_.waitUntilIdle();
+    return spiBus_.tryAcquire(SpiBusOwner::SdCard);
+  };
+  hooks.releaseSd = [this]() { spiBus_.release(SpiBusOwner::SdCard); };
+  hooks.onActivity = [this](const PortalStatus& status) {
+    portalStatus_ = status;
+    portalStatusDirty_ = true;
+    if (status.activity == PortalActivity::UploadCompleted ||
+        status.activity == PortalActivity::FilesChanged)
+      portalLibraryChanged_ = true;
+  };
+  if (!portal_.begin(hooks, "/")) {
+    wifi_.stop();
+    power_.disableRadio();
+    portalFailureStartedMs_ = millis();
+    return;
+  }
+  if (!MDNS.begin("m5paper"))
+    Serial.println("M5EPUB_PORTAL,mdns=failed");
+  else
+    MDNS.addService("http", "tcp", 80);
+  portalStartRequested_ = false;
+  portalNetworkScreenRequested_ = false;
+  state_ = AppState::LibraryMenu;
+  renderLibraryPortalState(false);
+  Serial.printf("M5EPUB_PORTAL,status=started,ssid=%s,ip=%s\n",
+                wifi_.ssid().c_str(), wifi_.ip().c_str());
+}
+
+void AppController::stopUploadServer() {
+  const bool changed = portalLibraryChanged_;
+  if (portal_.running()) portal_.end();
+  MDNS.end();
+  wifi_.stop();
+  power_.disableRadio();
+  portalStartRequested_ = false;
+  portalNetworkScreenRequested_ = false;
+  portalStatusDirty_ = false;
+  portalLibraryChanged_ = false;
+  if (state_ == AppState::WebPortalNetworks ||
+      state_ == AppState::WebPortalPassword)
+    state_ = AppState::LibraryMenu;
+  if (state_ == AppState::LibraryMenu) renderLibraryPortalState(false);
+  if (changed) {
+    browserView_.clearPreviews();
+    state_ = AppState::FileBrowser;
+    startDirectory(currentPath_);
+  }
+  Serial.println("M5EPUB_PORTAL,status=stopped,radio=off");
+}
+
+void AppController::renderLibraryPortalState(bool partial) {
+  const ui_strings::Text& text = ui_strings::get();
+  const char* state = text.uploadOff;
+  std::string address;
+  if (portal_.running()) {
+    state = text.uploadOn;
+    address = wifi_.ip() + "  m5paper.local";
+    if (portal_.uploadActive()) {
+      char progress[48];
+      const uint32_t percent = portalStatus_.totalBytes
+          ? static_cast<uint32_t>(portalStatus_.completedBytes * 100ULL /
+                                  portalStatus_.totalBytes) : 0;
+      snprintf(progress, sizeof(progress), "  %lu%%", static_cast<unsigned long>(percent));
+      address += progress;
+    }
+  } else if (wifi_.state() == WifiState::Scanning ||
+             wifi_.state() == WifiState::Connecting) {
+    state = text.uploadConnecting;
+  } else if (wifi_.state() == WifiState::Failed) {
+    state = wifi_.lastError().c_str();
+  }
+  browserView_.renderLibraryMenu(false, state, address.c_str(), partial);
+}
+
+void AppController::servicePortal() {
+  const uint32_t now = millis();
+  wifi_.poll(now);
+  if (portal_.running()) {
+    portal_.poll();
+    if (portal_.idleMs(now) >= app_config::kPortalIdleTimeoutMs) {
+      stopUploadServer();
+      return;
+    }
+    if (portalStatusDirty_ && state_ == AppState::LibraryMenu &&
+        !M5.Display.displayBusy()) {
+      portalStatusDirty_ = false;
+      renderLibraryPortalState(true);
+    }
+  }
+  if (wifi_.state() == WifiState::ScanDone) {
+    if (portalStartRequested_) {
+      bool connecting = false;
+      for (const auto& network : wifi_.networks()) {
+        if (network.saved && wifi_.connectSaved(network.ssid)) {
+          connecting = true;
+          renderLibraryPortalState(true);
+          break;
+        }
+      }
+      if (!connecting) {
+        portalStartRequested_ = false;
+        state_ = AppState::WebPortalNetworks;
+        portalNetworksRenderPending_ = true;
+        webPortalView_.renderNetworks(wifi_);
+        portalNetworksRenderPending_ = false;
+      }
+    } else if (state_ == AppState::WebPortalNetworks &&
+               portalNetworksRenderPending_ &&
+               !M5.Display.displayBusy()) {
+      webPortalView_.renderNetworks(wifi_);
+      portalNetworksRenderPending_ = false;
+    }
+  } else if (wifi_.state() == WifiState::Connected && !portal_.running()) {
+    startHttpPortal();
+  } else if (wifi_.state() == WifiState::Failed && !portalFailureStartedMs_) {
+    portalStartRequested_ = false;
+    portalFailureStartedMs_ = now;
+    if (state_ == AppState::LibraryMenu) renderLibraryPortalState(true);
+  }
+  if (portalFailureStartedMs_ && now - portalFailureStartedMs_ >= 4000) {
+    portalFailureStartedMs_ = 0;
+    stopUploadServer();
+  }
+}
+
+void AppController::handleWebPortalEvent(const AppEvent& event) {
+  if (event.type != AppEventType::Tap || M5.Display.displayBusy()) return;
+  if (state_ == AppState::WebPortalNetworks) {
+    const WebPortalViewHit hit = webPortalView_.hitNetworks(
+        event.x, event.y, wifi_.networks().size());
+    if (hit.action == WebPortalViewAction::Cancel) {
+      stopUploadServer();
+    } else if (hit.action == WebPortalViewAction::Rescan) {
+      wifi_.beginScan();
+      portalNetworksRenderPending_ = true;
+      webPortalView_.renderNetworks(wifi_);
+    } else if (hit.action == WebPortalViewAction::ForgetAll) {
+      wifi_.forgetAll();
+      wifi_.beginScan();
+      portalNetworksRenderPending_ = true;
+      webPortalView_.renderNetworks(wifi_);
+    } else if (hit.action == WebPortalViewAction::Network &&
+               hit.networkIndex < wifi_.networks().size()) {
+      portalSelectedSsid_ = wifi_.networks()[hit.networkIndex].ssid;
+      if (wifi_.networks()[hit.networkIndex].saved) {
+        wifi_.connectSaved(portalSelectedSsid_);
+      } else if (!wifi_.networks()[hit.networkIndex].secured) {
+        wifi_.connect(portalSelectedSsid_, "", true);
+      } else {
+        portalPassword_.clear();
+        state_ = AppState::WebPortalPassword;
+        webPortalView_.renderPassword(portalSelectedSsid_, portalPassword_,
+                                      portalRememberPassword_);
+      }
+    }
+  } else {
+    const WebPortalViewHit hit = webPortalView_.hitPassword(event.x, event.y);
+    if (hit.action == WebPortalViewAction::Key && portalPassword_.size() < 64)
+      portalPassword_ += hit.key;
+    else if (hit.action == WebPortalViewAction::Backspace && !portalPassword_.empty())
+      portalPassword_.pop_back();
+    else if (hit.action == WebPortalViewAction::ToggleRemember)
+      portalRememberPassword_ = !portalRememberPassword_;
+    else if (hit.action == WebPortalViewAction::Connect) {
+      if (wifi_.connect(portalSelectedSsid_, portalPassword_, portalRememberPassword_)) {
+        state_ = AppState::LibraryMenu;
+        renderLibraryPortalState(false);
+        return;
+      }
+    } else if (hit.action == WebPortalViewAction::Cancel) {
+      state_ = AppState::WebPortalNetworks;
+      webPortalView_.renderNetworks(wifi_);
+      return;
+    }
+    webPortalView_.renderPassword(portalSelectedSsid_, portalPassword_,
+                                  portalRememberPassword_);
+  }
+}
+#endif
 
 void AppController::beginCardPrefetch() {
   if (!libraryParser_) return;
@@ -1023,7 +1259,11 @@ void AppController::handleBrowserEvent(const AppEvent& event) {
     if (libraryParser_) libraryParser_->archive().close();
     libraryPreviewActive_ = false;
     state_ = AppState::LibraryMenu;
+#if M5EPUB_ENABLE_WEB_PORTAL
+    renderLibraryPortalState(false);
+#else
     browserView_.renderLibraryMenu(false);
+#endif
     return;
   }
   const int navigation = browserView_.navigationAt(event.x, event.y);

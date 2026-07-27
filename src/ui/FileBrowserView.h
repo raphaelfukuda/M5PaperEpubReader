@@ -40,7 +40,10 @@ class FileBrowserView : public View {
   void showBookSelected(const FileEntry& entry);
   void showBookInfo(const EpubBook& book);
   void showBookError(const std::string& message);
-  void renderLibraryMenu(bool confirmation = false);
+  void renderLibraryMenu(bool confirmation = false,
+                         const char* uploadState = nullptr,
+                         const char* portalAddress = nullptr,
+                         bool partialPortalUpdate = false);
   void renderPrefetchProgress(bool scanning, size_t completed, size_t total,
                               bool done, bool truncated);
 

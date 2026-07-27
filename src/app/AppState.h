@@ -7,6 +7,8 @@ enum class AppState {
   LibraryMenu,
   LibraryPrefetchConfirm,
   LibraryPrefetch,
+  WebPortalNetworks,
+  WebPortalPassword,
   OpeningBook,
   Reading,
   ReaderMenu,

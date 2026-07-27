@@ -9,6 +9,7 @@
 #include "layout/BasicCssStyle.h"
 #include "layout/TextStyle.h"
 #include "storage/PathUtils.h"
+#include "net/PortalPath.h"
 #include "storage/ReadingStateCodec.h"
 #include "refresh/RefreshPolicy.h"
 #include "input/PendingReaderActions.h"
@@ -574,6 +575,9 @@ void test_links_classify_internal_external_notes_and_backlinks() {
       "OPS/chapter.xhtml", "javascript:alert(1)", target));
 }
 
+void test_portal_path_resolution_rejects_traversal_and_normalizes();
+void test_portal_name_sanitizes_utf8_and_preserves_extension();
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_epub_extension_is_case_insensitive);
@@ -610,5 +614,27 @@ int main(int, char**) {
   RUN_TEST(test_epub3_toc_discovery_and_nested_navigation);
   RUN_TEST(test_epub2_ncx_and_toc_limits);
   RUN_TEST(test_links_classify_internal_external_notes_and_backlinks);
+  RUN_TEST(test_portal_path_resolution_rejects_traversal_and_normalizes);
+  RUN_TEST(test_portal_name_sanitizes_utf8_and_preserves_extension);
   return UNITY_END();
+}
+void test_portal_path_resolution_rejects_traversal_and_normalizes() {
+  std::string result;
+  std::string error;
+  TEST_ASSERT_TRUE(portal_path::resolve("/Books", "./Classics//", result, &error));
+  TEST_ASSERT_EQUAL_STRING("/Books/Classics", result.c_str());
+  TEST_ASSERT_FALSE(portal_path::resolve("/Books", "safe/../escape", result, &error));
+  TEST_ASSERT_FALSE(portal_path::resolve("/", std::string(201, 'a'), result, &error));
+}
+
+void test_portal_name_sanitizes_utf8_and_preserves_extension() {
+  TEST_ASSERT_EQUAL_STRING("Memorias_Postumas.epub",
+      portal_path::sanitizeName("Memórias Póstumas.epub").c_str());
+  TEST_ASSERT_EQUAL_STRING("ACAO_coracao.epub",
+      portal_path::sanitizeName("AÇÃO coração.epub").c_str());
+  TEST_ASSERT_EQUAL_STRING("file",
+      portal_path::sanitizeName("😀😀").c_str());
+  const std::string shortened = portal_path::sanitizeName(
+      "abcdefghijklmnopqrstuvwxyz.epub", 16);
+  TEST_ASSERT_EQUAL_STRING("abcdefghijk.epub", shortened.c_str());
 }

@@ -40,6 +40,11 @@ struct Text {
   const char* scanningCard;
   const char* indexingCovers;
   const char* completed;
+  const char* uploadServer;
+  const char* uploadOff;
+  const char* uploadOn;
+  const char* uploadConnecting;
+  const char* wifiNetworks;
 };
 
 const Text& get();

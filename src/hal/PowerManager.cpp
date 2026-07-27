@@ -8,8 +8,19 @@
 #include "AppConfig.h"
 
 void PowerManager::begin() {
-  WiFi.mode(WIFI_OFF);
+  disableRadio();
   btStop();
+}
+
+void PowerManager::enableRadio() {
+  WiFi.mode(WIFI_STA);
+  radioEnabled_ = true;
+}
+
+void PowerManager::disableRadio() {
+  WiFi.disconnect(true, false);
+  WiFi.mode(WIFI_OFF);
+  radioEnabled_ = false;
 }
 
 void PowerManager::enterLowPowerSleep() {

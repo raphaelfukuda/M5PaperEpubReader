@@ -23,6 +23,8 @@ class DisplayManager {
   M5Canvas& imageCanvas();
   bool submitFull(RefreshIntent intent);
   bool submitCanvas(M5Canvas& source, RefreshIntent intent);
+  bool submitRegion(M5Canvas& source, int32_t x, int32_t y, int32_t width,
+                    int32_t height, RefreshIntent intent);
   void beginPageTurnMetric(PageTurnKind kind, uint32_t eventTimestampUs,
                            uint32_t eventToHandlingUs = 0);
   void markPageReady(uint32_t timestampUs);

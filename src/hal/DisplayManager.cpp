@@ -152,6 +152,26 @@ bool DisplayManager::submitFull(RefreshIntent intent) {
   return submitCanvas(canvas_, intent);
 }
 
+bool DisplayManager::submitRegion(M5Canvas& source, int32_t x, int32_t y,
+                                  int32_t regionWidth, int32_t regionHeight,
+                                  RefreshIntent intent) {
+  DisplayRegion region{x, y, regionWidth, regionHeight};
+  region = region.clamped(width(), height()).aligned(
+      app_config::kDisplayRegionAlignmentPixels, width(), height());
+  if (region.empty()) return false;
+  ScopedSpiBus bus(busGuard_, SpiBusOwner::Display);
+  if (!bus) return false;
+  M5.Display.waitDisplay();
+  setRefreshProfile(intent == RefreshIntent::FullQuality
+                        ? RefreshProfile::Quality : RefreshProfile::Fast);
+  M5.Display.setClipRect(region.x, region.y, region.width, region.height);
+  source.pushSprite(0, 0);
+  M5.Display.clearClipRect();
+  M5.Display.display(region.x, region.y, region.width, region.height);
+  ++refreshMetrics_.fastRefreshes;
+  return true;
+}
+
 bool DisplayManager::submitCanvas(M5Canvas& source, RefreshIntent intent) {
   if (!canvasReady_) return false;
   if (intent != RefreshIntent::SleepCoverQuality) drawBatteryIndicator(source);
