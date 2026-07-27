@@ -69,6 +69,16 @@ library navigation.
   the ESP32 enters light sleep. Touch or either end of the font lever wakes it
   without changing the saved reading position.
 
+## Screenshots
+
+| Two-column cover library | Whole-card cover preparation |
+|---|---|
+| ![M5Paper showing the two-column EPUB cover library](docs/images/library-grid.jpg) | ![M5Paper preparing library covers with a progress bar](docs/images/library-cover-preparation.jpeg) |
+
+The interface text in screenshots may differ slightly from the latest build as
+labels are refined, while the illustrated library and progress flows remain the
+same.
+
 ## Supported content
 
 The reader targets textual, reflowable EPUB 2/3 books. DRM, JavaScript, audio,
