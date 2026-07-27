@@ -1,6 +1,7 @@
 #include "HtmlEntityDecoder.h"
 
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 
 namespace {

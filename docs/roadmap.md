@@ -27,7 +27,7 @@ remain compatible with the original ESP32 M5Paper.
 - Preserve the current reading anchor during reflow and persist the selection.
 - Document flash, PSRAM and rendering-performance impact for each bundled font.
 
-## Known bug
+## Resolved bugs
 
 ### Incorrect page number after returning to a book
 
@@ -36,6 +36,15 @@ starts again from the beginning of the in-memory session. Page numbering must
 remain consistent after leaving and reopening a book, restarting the device or
 restoring a saved reading position.
 
-The fix must define whether numbering is global or chapter-relative, persist or
-reconstruct the required state with bounded memory, and include regression tests
-for reopen, sleep/wake, zoom reflow and chapter transitions.
+Resolved in the reading-state version 2 format. The reader persists the absolute
+session page number and a bounded window of up to 32 previous `PageAnchor` values.
+This preserves numbering and allows backward navigation after reopening without
+repaginating the whole book. Version 1 files are accepted, but cannot recover a
+page number or history that they never stored; the next save upgrades the file.
+# Estado da otimização de refresh
+
+As etapas de arquitetura e firmware da otimização do M5Paper original estão
+concluídas. Permanecem como validação física: matriz comparativa de waveforms,
+fotografias/notas de ghosting, estabilidade após 500 páginas e experimentos
+controlados de SRAM. O segundo núcleo só será reconsiderado se essas medições
+mostrarem parsing/layout no caminho crítico.

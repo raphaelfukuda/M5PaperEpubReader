@@ -54,7 +54,14 @@ bool encode(const ReadingState& state, std::string& output) {
   stream << "M5EPUB-STATE\nversion=" << state.version << "\nbook=" << escape(state.bookPath)
          << "\nspine=" << state.spineIndex << "\noffset=" << state.textOffset
          << "\ncheckpoint=" << state.parserCheckpoint << "\nfont=" << state.fontSize
-         << "\nspacing=" << state.lineSpacing << "\nmargin=" << state.horizontalMargin << "\n";
+         << "\nspacing=" << state.lineSpacing << "\nmargin=" << state.horizontalMargin
+         << "\npage=" << state.pageNumber
+         << "\nhistory_count=" << state.previousPages.size() << "\n";
+  for (size_t i = 0; i < state.previousPages.size(); ++i) {
+    const ReadingHistoryEntry& entry = state.previousPages[i];
+    stream << "history" << i << "=" << entry.spineIndex << "," << entry.textOffset
+           << "," << entry.parserCheckpoint << "\n";
+  }
   output = stream.str(); return true;
 }
 
@@ -71,7 +78,9 @@ bool decode(const std::string& input, ReadingState& state, std::string& error) {
     position = lineEnd + 1;
   }
   ReadingState parsed; uint64_t value = 0;
-  if (!parseUnsigned(fields, "version", UINT32_MAX, value) || value != ReadingState::kCurrentVersion) { error = "Versao de estado nao suportada"; return false; } parsed.version = value;
+  if (!parseUnsigned(fields, "version", UINT32_MAX, value) || (value != 1 && value != ReadingState::kCurrentVersion)) { error = "Versao de estado nao suportada"; return false; }
+  const uint32_t storedVersion = static_cast<uint32_t>(value);
+  parsed.version = ReadingState::kCurrentVersion;
   const auto book = fields.find("book");
   if (book == fields.end() || !unescape(book->second, parsed.bookPath) || parsed.bookPath.empty()) { error = "Caminho do livro invalido"; return false; }
   if (!parseUnsigned(fields, "spine", UINT32_MAX, value)) { error = "Indice do spine invalido"; return false; } parsed.spineIndex = value;
@@ -80,6 +89,32 @@ bool decode(const std::string& input, ReadingState& state, std::string& error) {
   if (!parseUnsigned(fields, "font", UINT16_MAX, value) || value < 8) { error = "Fonte invalida"; return false; } parsed.fontSize = value;
   if (!parseUnsigned(fields, "spacing", UINT16_MAX, value)) { error = "Espacamento invalido"; return false; } parsed.lineSpacing = value;
   if (!parseUnsigned(fields, "margin", UINT16_MAX, value)) { error = "Margem invalida"; return false; } parsed.horizontalMargin = value;
+  if (storedVersion >= 2) {
+    if (!parseUnsigned(fields, "page", UINT32_MAX, value) || value == 0) { error = "Numero de pagina invalido"; return false; }
+    parsed.pageNumber = static_cast<uint32_t>(value);
+    if (!parseUnsigned(fields, "history_count", 32, value)) { error = "Historico de paginas invalido"; return false; }
+    const size_t count = static_cast<size_t>(value);
+    parsed.previousPages.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      const auto it = fields.find("history" + std::to_string(i));
+      if (it == fields.end()) { error = "Ancora de historico ausente"; return false; }
+      std::istringstream item(it->second);
+      std::string part;
+      ReadingHistoryEntry entry;
+      if (!std::getline(item, part, ',') || part.empty()) { error = "Ancora de historico invalida"; return false; }
+      char* end = nullptr; const unsigned long long spine = std::strtoull(part.c_str(), &end, 10);
+      if (!end || *end || spine > UINT32_MAX) { error = "Spine de historico invalido"; return false; }
+      entry.spineIndex = static_cast<uint32_t>(spine);
+      if (!std::getline(item, part, ',') || part.empty()) { error = "Offset de historico invalido"; return false; }
+      entry.textOffset = std::strtoull(part.c_str(), &end, 10);
+      if (!end || *end) { error = "Offset de historico invalido"; return false; }
+      if (!std::getline(item, part) || part.empty()) { error = "Checkpoint de historico invalido"; return false; }
+      const unsigned long checkpoint = std::strtoul(part.c_str(), &end, 10);
+      if (!end || *end || checkpoint > UINT32_MAX) { error = "Checkpoint de historico invalido"; return false; }
+      entry.parserCheckpoint = static_cast<uint32_t>(checkpoint);
+      parsed.previousPages.push_back(entry);
+    }
+  }
   state = parsed; return true;
 }
 }

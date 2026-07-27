@@ -10,7 +10,7 @@
 
 ## Evidências esperadas
 
-1. O serial deve informar `Board enum` igual ao valor esperado, display `540 x 960`, touch `yes`, flash, PSRAM próxima de 8 MB, heap interno, SD e CPU.
+1. O serial deve informar `Board enum` igual ao valor esperado, display `540 x 960`, touch `yes`, flash, PSRAM próxima de 4 MB no aparelho atualmente medido, heap interno, SD e CPU.
 2. A tela deve ficar em retrato, com título horizontal e cinco alvos circulares: dois superiores, centro e dois inferiores.
 3. Toque uma vez no centro de cada alvo. O círculo deve ser preenchido próximo ao dedo e o serial deve imprimir coordenadas coerentes.
 4. Toque sequencialmente nos quatro cantos, sem alcançar a borda extrema. Verifique que X cresce da esquerda para a direita e Y cresce de cima para baixo.
@@ -72,3 +72,120 @@ Passa quando identifica `board_M5Paper`, mostra 540×960, encontra PSRAM/touch, 
 
 Sumário, links/notas, imagens e CSS ainda não têm fluxo visual completo e não
 devem ser aprovados apenas porque seus parsers puros existem.
+
+## Teste da política adaptativa e input pendente
+
+Use o firmware de 2026-07-26 ou posterior e mantenha o monitor serial aberto. O
+upload validado nesta máquina usa a porta `COM8`.
+
+1. Abra um EPUB textual e avance uma página por vez, esperando mais de um segundo.
+   Confirme no serial `M5EPUB_REFRESH` com `effective=fast`.
+2. Faça cinco viradas com intervalo aproximado de 300–800 ms. A partir do burst,
+   confirme `effective=fastest`; observe se texto permanece confortável.
+3. Durante uma atualização física, toque novamente para avançar. Deve aparecer
+   `M5EPUB_INPUT` com `status=queued` e depois `status=executed`; a ação não pode
+   desaparecer nem executar mais de três avanços acumulados.
+4. Durante prefetch, abra o menu. O pedido deve ser registrado e o menu deve abrir
+   quando o prefetch chegar ao término seguro. Nesta versão o prefetch ainda não
+   é cancelado no meio do chunk.
+5. Alterne próxima/anterior dez vezes. Anterior deve prevalecer sobre avanços
+   ainda pendentes e não pode pular ou repetir texto.
+6. Continue até ocorrer limpeza automática. Confirme uma linha
+   `effective=quality,reason=ghosting_cleanup` e verifique visualmente a remoção
+   de resíduos. Registre o campo `cleanup` que causou a limpeza.
+7. Capture pelo menos 30 viradas normais e 30 rápidas em arquivo. Analise com:
+
+   ```powershell
+   pio device monitor --port COM8 --baud 115200 | Tee-Object serial-refresh.log
+   python tools/analyze_refresh_metrics.py serial-refresh.log -o refresh-summary.md
+   ```
+
+8. Inspecione mediana, P95 e máximo de `event_to_submit_us` e `event_to_idle_us`.
+   Não conclua ganho apenas pela média. Fotografe a tela após cada burst e atribua
+   nota de ghosting de 0 a 5.
+
+Interrompa o teste se houver página vazia, texto pulado/repetido, reinicialização,
+watchdog ou toque executado no sentido errado. Preserve o log completo nesse caso.
+
+## Checkpoint físico antes do double buffering
+
+1. Abra uma página com a última frase facilmente reconhecível.
+2. Assim que a página aparecer, abra o menu enquanto o próximo prefetch está em
+   andamento. Confirme `M5EPUB_PREFETCH,status=cancel_requested` seguido de
+   `status=cancelled` e retorno correto ao fechar o menu.
+3. Repita pedindo página anterior e depois alterando a fonte durante prefetch.
+4. Em cada caso, avance novamente e confira palavra por palavra a fronteira entre
+   páginas: não pode haver texto duplicado, omitido ou deslocado.
+5. Faça dez ciclos de abrir menu/cancelar/fechar e depois vinte viradas contínuas.
+6. Confirme que `cpu_work_during_busy_us` aparece maior que zero em pelo menos
+   algumas linhas `M5EPUB_METRIC`; isso prova sobreposição de CPU, não ganho visual.
+
+## Checkpoint físico do double buffering
+
+1. Faça vinte viradas para a frente, esperando o prefetch terminar antes de cada
+   toque. Cada caminho rápido deve registrar `M5EPUB_BUFFER,swap=1`.
+2. Confirme que título, bateria, número de página e corpo pertencem à mesma página.
+3. Compare a última linha de cada página com a primeira da seguinte; não pode haver
+   repetição ou omissão.
+4. A cada cinco viradas, abra e feche o menu. A página restaurada deve ser a atual,
+   nunca o menu nem a página seguinte prefetched.
+5. Faça anterior, próxima, anterior, próxima. O back buffer obsoleto deve ser
+   invalidado e o conteúdo permanecer correto.
+6. Altere a fonte e avance. A primeira página com a nova fonte não pode reutilizar
+   pixels ou paginação do tamanho anterior.
+
+## Botão central — limpeza manual assíncrona
+
+1. Com uma página aberta e o painel livre, pressione o centro da alavanca uma vez.
+   A página deve receber um refresh completo de qualidade sem mudar posição ou fonte.
+2. Pressione novamente enquanto o painel estiver ocupado. O log deve mostrar
+   `status=queued` imediatamente e `status=submitted` quando a submissão for segura.
+3. Repita na biblioteca e no menu; o conteúdo atual deve permanecer o mesmo.
+4. Confirme `M5EPUB_REFRESH` com `effective=quality,reason=manual_cleanup`.
+5. Segurar ou pressionar repetidamente durante busy deve coalescer em uma única
+   solicitação pendente, sem bloquear touch ou as extremidades da alavanca.
+
+## Retomada com número e histórico
+
+1. Com este firmware, abra um livro, avance pelo menos dez páginas e volte à
+   biblioteca pelo menu para forçar a gravação do estado versão 2.
+2. Reabra o livro. Conteúdo e número devem ser os mesmos do momento da saída.
+3. Volte cinco páginas. Cada página deve aparecer corretamente e o número deve
+   diminuir sem retornar artificialmente para 1.
+4. Avance novamente e confira continuidade do texto nas duas direções.
+5. Reinicie o aparelho e repita. Depois teste sleep/wake e mudança de fonte.
+6. Para validar o limite, avance mais de 32 páginas, reabra e confirme pelo menos
+   as 32 páginas anteriores. Páginas mais antigas podem exigir reconstrução futura.
+
+Um estado antigo versão 1 não contém número nem histórico. Faça ao menos uma
+virada e saia pelo menu para que ele seja regravado como versão 2 antes do teste.
+
+## Checkpoint físico de refresh parcial e dirty region
+
+1. Abra um livro e faça vinte viradas prefetched. Verifique que não restam faixas
+   da página anterior fora da região atualizada.
+2. No serial, confira `M5EPUB_DIRTY` e compare `changed_ratio` com
+   `selected_ratio`. A região selecionada deve conter toda a alteração.
+3. Abra e feche o menu, volte uma página, mude a fonte e atravesse um capítulo.
+   Nenhuma dessas operações pode deixar pixels antigos, cortar texto ou misturar
+   cabeçalho, corpo e rodapé.
+4. Pressione o botão central. A limpeza manual deve registrar tela cheia e
+   `effective=quality`, eliminando resíduos visíveis.
+5. Faça cinco bursts de cinco páginas e atribua nota de ghosting de 0 a 5 após
+   cada grupo. Guarde o log e fotografias; não conclua melhora apenas pelo build.
+6. Se aparecer corrupção, registre a última linha `M5EPUB_DIRTY`, a linha
+   `M5EPUB_REFRESH` correspondente e a orientação/região visível antes de
+   reiniciar o aparelho.
+
+## Checkpoint final de persistência e memória
+
+1. No boot, confirme dois logs `M5EPUB_MEMORY` e que ambos os canvases foram
+   alocados; em Auto, anote se cada um ficou em PSRAM ou SRAM.
+2. Vire quatro páginas e aguarde menos de 15 segundos: não deve haver escrita por
+   página. Depois aguarde 15 segundos e confirme `reason=idle_timeout`.
+3. Vire cinco páginas continuamente e confirme uma única escrita com
+   `reason=page_threshold`, somente depois do painel ficar livre.
+4. Teste voltar à biblioteca, mudar fonte e entrar em sleep; o log deve mostrar a
+   persistência obrigatória correspondente e a retomada deve manter a posição.
+5. Faça 100 viradas e observe reinicializações, watchdog, falhas de alocação e
+   redução contínua do maior bloco. O segundo núcleo deve permanecer desativado.

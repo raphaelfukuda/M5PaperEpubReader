@@ -16,6 +16,21 @@
 
 O display e o SD são usados somente pela task Arduino principal. Antes do SD, o display é aguardado com `waitDisplay()`. Se futuramente houver worker, ele não possuirá SD, display ou touch.
 
+## Agendamento e persistência
+
+Input e submissão têm prioridade sobre prefetch e persistência. O estado de
+leitura sujo é agregado e salvo depois de inatividade, limiar de páginas ou
+intervalo máximo; transições críticas forçam a gravação assim que display e SPI
+estão seguros. O worker de segundo núcleo permanece desativado porque as métricas
+atuais não justificam a complexidade adicional.
+
+## Memória dos canvases
+
+Front e back buffers usam seleção Auto conservadora em PSRAM. O experimento
+físico com front em SRAM travou no primeiro envio ao IT8951; portanto SRAM fica
+restrita ao override de diagnóstico, que ainda exige maior bloco suficiente e
+margem de 64 KiB. A seleção é registrada por `M5EPUB_MEMORY`.
+
 ## Espera de baixo consumo
 
 Após dez minutos sem toque ou alavanca, ou por solicitação no menu, o estado de

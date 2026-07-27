@@ -3,6 +3,7 @@
 #include "epub/EpubBook.h"
 class ReaderView {
  public: explicit ReaderView(DisplayManager& display) : display_(display) {}
-  void renderPageChrome(const EpubBook& book, uint32_t pageNumber);
+  void renderPageChrome(const EpubBook& book, uint32_t pageNumber,
+                        M5Canvas& canvas);
  private: DisplayManager& display_;
 };

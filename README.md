@@ -19,6 +19,9 @@ the last stable reading position.
 - battery level in the top-right corner, sampled only during screen changes;
 - English and Brazilian Portuguese interface, with English as the default;
 - deliberate E-Ink refresh modes and serialized display/microSD SPI access;
+- adaptive fast/fastest refresh, periodic ghosting cleanup, partial dirty-region
+  submission and real front/back page buffers;
+- debounced reading-state writes and bounded automatic SRAM/PSRAM selection;
 - Wi-Fi and Bluetooth disabled by design.
 
 ## Install

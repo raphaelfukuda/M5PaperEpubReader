@@ -47,9 +47,18 @@ void HtmlTokenizer::finishTag(std::string& out) {
     else if (name.size() == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6' && !closing) style = static_cast<uint8_t>(text_style_control::Heading1) + (name[1] - '1');
     else if (name == "strong" || name == "b") style = closing ? text_style_control::BoldOff : text_style_control::BoldOn;
     else if (name == "em" || name == "i") style = closing ? text_style_control::ItalicOff : text_style_control::ItalicOn;
-    if (style != 0) { out += text_style_control::kEscape; out += static_cast<char>(style); }
+    const bool structural = name == "p" || name == "br" || name == "div" ||
+                            name == "li" || name == "blockquote" ||
+                            name == "pre" || name == "hr" ||
+                            (name.size() == 2 && name[0] == 'h' &&
+                             name[1] >= '1' && name[1] <= '6');
+    if (structural && (out.empty() || out.back() != '\n')) out += '\n';
+    if (style != 0) {
+      out += text_style_control::kEscape;
+      out += static_cast<char>(style);
+    }
+    if (name == "li" && !closing) out += "• ";
   }
-  if (!skipping_ && (name == "p" || name == "br" || name == "div" || name == "li" || name == "blockquote" || name == "pre" || name == "hr" || (name.size() == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6'))) { if (out.empty() || out.back() != '\n') out += '\n'; if (name == "li" && !closing) out += "• "; }
   tag_.clear();
 }
 void HtmlTokenizer::finishEntity(std::string& out) { out += html_entities::decode("&" + entity_ + ";"); entity_.clear(); }
@@ -75,6 +84,14 @@ std::string HtmlTokenizer::feed(const uint8_t* data, size_t length, bool finalCh
   }
   normalizeLayoutSpaces(out);
   if (seededBoundary) out.erase(0, 1);
-  if (!out.empty()) layoutBoundary_ = out.back();
+  char boundary = layoutBoundary_;
+  for (size_t i = 0; i < out.size(); ++i) {
+    if (out[i] == text_style_control::kEscape && i + 1 < out.size()) {
+      ++i;
+      continue;
+    }
+    boundary = out[i];
+  }
+  layoutBoundary_ = boundary;
   return out;
 }

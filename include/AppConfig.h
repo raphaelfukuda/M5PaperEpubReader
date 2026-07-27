@@ -2,6 +2,16 @@
 
 #include <Arduino.h>
 
+#ifndef M5EPUB_CANVAS_MEMORY_INTERNAL
+#define M5EPUB_CANVAS_MEMORY_INTERNAL 0
+#endif
+#ifndef M5EPUB_CANVAS_MEMORY_PSRAM
+#define M5EPUB_CANVAS_MEMORY_PSRAM 0
+#endif
+#ifndef M5EPUB_ENABLE_LAYOUT_WORKER
+#define M5EPUB_ENABLE_LAYOUT_WORKER 0
+#endif
+
 namespace app_config {
 constexpr uint32_t kSerialBaud = 115200;
 // Verified on the original M5Paper: rotation 0 yields 540 x 960 portrait.
@@ -35,4 +45,21 @@ constexpr int32_t kBatteryIndicatorWidth = 104;
 constexpr size_t kMaxVisitedPageTextBytes = 96 * 1024;
 constexpr size_t kMaxPageHistoryEntries = 8192;
 constexpr uint8_t kReadingPagesBeforeQualityRefresh = 8;
+constexpr uint32_t kRapidPageTurnWindowMs = 900;
+constexpr uint8_t kRapidTurnsBeforeFastest = 2;
+constexpr uint8_t kMaxConsecutiveFastestRefreshes = 4;
+constexpr uint8_t kMaxFastRefreshesBeforeCleanup = 8;
+constexpr uint8_t kMaxReadingRefreshesBeforeQuality = 10;
+constexpr uint32_t kMaxMillisecondsWithoutQualityRefresh = 10UL * 60UL * 1000UL;
+constexpr size_t kReaderInputChunkSize = 1024;
+constexpr size_t kReaderInputBufferChunks = 1;
+constexpr uint32_t kCpuWorkBudgetPerTickUs = 2000;
+constexpr size_t kPersistedPreviousPageAnchors = 32;
+constexpr float kPartialRefreshMaximumRegionRatio = 0.85f;
+constexpr int32_t kDirtyRegionExpansionPixels = 4;
+constexpr int32_t kDisplayRegionAlignmentPixels = 4;
+constexpr uint32_t kReadingStateIdleSaveDelayMs = 15000;
+constexpr uint32_t kReadingStateMaxSaveIntervalMs = 60000;
+constexpr uint8_t kReadingStatePageSaveThreshold = 5;
+constexpr size_t kInternalHeapSafetyMargin = 64 * 1024;
 }  // namespace app_config
