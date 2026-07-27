@@ -720,6 +720,15 @@ void AppController::handleBrowserEvent(const AppEvent& event) {
     return;
   }
   if (event.type != AppEventType::Tap) return;
+  const int navigation = browserView_.navigationAt(event.x, event.y);
+  if (navigation != 0) {
+    const size_t previous = browserView_.page();
+    if (navigation < 0) browserView_.previousPage();
+    else browserView_.nextPage();
+    browserDirty_ = browserView_.page() != previous;
+    if (browserDirty_) scheduleLibraryPreviews();
+    return;
+  }
   const int logicalIndex = browserView_.itemAt(event.x, event.y);
   if (logicalIndex < 0) return;
   browserView_.showSelection(event.x, event.y);

@@ -52,6 +52,15 @@ int FileBrowserView::itemAt(int32_t x, int32_t y) const {
   return index < visibleItemCount() ? static_cast<int>(index) : -1;
 }
 
+int FileBrowserView::navigationAt(int32_t x, int32_t y) const {
+  if (y < display_.height() - app_config::kBrowserFooterHeight ||
+      y >= display_.height() || pageCount() <= 1)
+    return 0;
+  if (x < display_.width() / 3 && page_ > 0) return -1;
+  if (x >= (display_.width() * 2) / 3 && page_ + 1 < pageCount()) return 1;
+  return 0;
+}
+
 void FileBrowserView::clearPreviews() { previews_.clear(); }
 
 void FileBrowserView::setPreview(LibraryBookPreview preview) {
@@ -176,6 +185,20 @@ void FileBrowserView::render() {
                 static_cast<unsigned>(pageCount()));
   canvas.drawString(footer, display_.width() / 2,
                     display_.height() - app_config::kBrowserFooterHeight / 2);
+  canvas.setFont(reader_font::forSize(24, ReaderFontFamily::Compact));
+  if (page_ > 0) {
+    canvas.drawRect(8, display_.height() - app_config::kBrowserFooterHeight + 5,
+                    74, app_config::kBrowserFooterHeight - 10, TFT_BLACK);
+    canvas.drawString("<", 45,
+                      display_.height() - app_config::kBrowserFooterHeight / 2);
+  }
+  if (page_ + 1 < pageCount()) {
+    canvas.drawRect(display_.width() - 82,
+                    display_.height() - app_config::kBrowserFooterHeight + 5,
+                    74, app_config::kBrowserFooterHeight - 10, TFT_BLACK);
+    canvas.drawString(">", display_.width() - 45,
+                      display_.height() - app_config::kBrowserFooterHeight / 2);
+  }
   display_.submitCanvas(canvas, previews_.empty() ? RefreshIntent::FullQuality
                                                    : RefreshIntent::ImageQuality);
 }

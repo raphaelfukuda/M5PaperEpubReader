@@ -25,6 +25,7 @@ class FileBrowserView : public View {
   size_t pageCount() const;
   size_t page() const { return page_; }
   int itemAt(int32_t x, int32_t y) const;
+  int navigationAt(int32_t x, int32_t y) const;
   void showSelection(int32_t x, int32_t y);
   void clearPreviews();
   void setPreview(LibraryBookPreview preview);
