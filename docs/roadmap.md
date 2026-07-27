@@ -6,6 +6,11 @@ remain compatible with the original ESP32 M5Paper.
 
 ## Planned features
 
+No large feature is currently committed to a release. Suggestions remain
+welcome through issues.
+
+## Implemented roadmap features
+
 ### Web interface for EPUB upload
 
 - Provide an optional, temporary Wi-Fi mode for uploading `.epub` books from a
@@ -19,9 +24,12 @@ remain compatible with the original ESP32 M5Paper.
 - Require explicit activation on the device and automatically disable the web
   interface and Wi-Fi after completion or inactivity to preserve battery and
   the reader's offline-by-default behavior.
-- Refresh the library and prepare the new book's cover after a successful upload.
+- Refresh the library after a successful upload so the new book becomes visible.
 
-## Implemented roadmap features
+Implemented as an opt-in synchronous HTTP portal with an embedded bilingual
+page, streaming JSON directory listings, sequential upload progress, atomic
+`.part` writes, guarded SD access, saved Wi-Fi credentials and an eight-minute
+idle shutdown.
 
 ### Cover image in the reading menu
 

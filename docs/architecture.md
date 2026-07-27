@@ -9,14 +9,32 @@
 - `hal/TouchController`: converte estado do M5Unified em eventos básicos.
 - `hal/SdCardService`: montagem do SD e métricas.
 - `hal/SpiBusGuard`: propriedade lógica exclusiva entre SD e display.
-- `hal/PowerManager`: mantém Wi-Fi e Bluetooth desligados e configura light
-  sleep com wake-up pelos GPIOs 37/39 da alavanca e GPIO 36 do touch.
+- `hal/PowerManager`: mantém Bluetooth desligado, controla a exceção temporária
+  do rádio Wi-Fi e configura light sleep com wake-up pelos GPIOs 37/39 da
+  alavanca e GPIO 36 do touch.
+- `net/WifiService`: scan e associação assíncronos, redes conhecidas em um blob
+  NVS e desligamento explícito do rádio.
+- `net/WebPortalService`: `WebServer` síncrono, API REST e uploads transacionais
+  `.part`; callbacks rodam somente por `handleClient()` no loop principal.
+- `net/PortalPath`: normalização de caminhos e nomes FAT testável no ambiente
+  nativo, sem dependência de Arduino.
 - `storage/LibraryThumbnailCache`: catálogo persistente e miniaturas 4-bit
   validadas por caminho, tamanho e data do EPUB.
 - `diagnostics`: logs e estruturas de métricas.
 - `ui`: contrato de views; telas funcionais começam na Fase 2.
 
 O display e o SD são usados somente pela task Arduino principal. Antes do SD, o display é aguardado com `waitDisplay()`. Se futuramente houver worker, ele não possuirá SD, display ou touch.
+
+## Portal local de upload
+
+O portal é compilado apenas com `M5EPUB_ENABLE_WEB_PORTAL=1`. O rádio inicia
+desligado. Ao ativar o toggle da biblioteca, o scan e a associação avançam por
+`poll()`. O `WebServer` síncrono é atendido no mesmo loop; seus hooks aguardam o
+display e tomam `SpiBusGuard` como `SdCard`. Uploads mantêm o guard entre
+`UPLOAD_FILE_START` e o encerramento, escrevem em `.part` e renomeiam somente
+após tamanho e escrita completos. A UI nunca desenha dentro de `onActivity`.
+Enquanto o portal roda, o sleep automático fica inibido; oito minutos sem
+requisição encerram HTTP, mDNS, associação e rádio.
 
 ## Agendamento e persistência
 

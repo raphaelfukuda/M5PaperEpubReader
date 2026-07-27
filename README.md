@@ -26,7 +26,8 @@ the last stable reading position.
   submission and real front/back page buffers;
 - forced full-quality refresh when entering and leaving sleep;
 - debounced reading-state writes and bounded automatic SRAM/PSRAM selection;
-- Wi-Fi and Bluetooth disabled by design.
+- optional local web portal for EPUB upload, with Wi-Fi enabled only on demand;
+  Bluetooth remains disabled and Wi-Fi returns to off after use or inactivity.
 
 ## Install
 
@@ -68,6 +69,11 @@ library navigation.
 - **Power:** after ten minutes without interaction, or from the reading menu,
   the ESP32 enters light sleep. Touch or either end of the font lever wakes it
   without changing the saved reading position.
+- **Web upload:** open the library's top menu and turn on `Upload server`. Choose
+  a Wi-Fi network the first time, enter its password on the device, then open
+  the displayed IP address or `http://m5paper.local`. The embedded page can
+  browse folders, create folders, delete items and upload EPUB files
+  sequentially. The radio turns off after eight minutes without a request.
 
 ## Screenshots
 
@@ -108,6 +114,12 @@ toque em `Language: English` para mudar para português. Coloque os livros na
 pasta `/Books` do cartão microSD e compile/grave usando os comandos acima.
 O tópico “How it works” descreve biblioteca, preparação incremental das capas,
 leitura, refresh E-Ink, persistência e funcionamento do modo de espera.
+
+Para enviar livros sem retirar o cartão, toque no topo da biblioteca, ative
+`Servidor de envio`, escolha a rede e digite a senha. Abra no celular ou
+computador o IP mostrado na tela ou `http://m5paper.local`. O Wi-Fi permanece
+desligado fora desse modo e é desligado automaticamente após oito minutos sem
+requisições.
 
 ## License
 

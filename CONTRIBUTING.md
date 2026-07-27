@@ -7,7 +7,8 @@ Thank you for helping improve M5Paper EPUB Reader.
 3. Preserve the cooperative loop and exclusive display/microSD SPI access.
 4. Keep code and comments in English. User-facing strings must be added to both
    English and Brazilian Portuguese tables; English remains the default.
-5. Do not add network services, M5EPD or LVGL.
+5. Do not add M5EPD, LVGL or always-on network services. Changes to the existing
+   opt-in upload portal must keep the radio off outside portal use.
 6. Run `pio test -e native` and `pio run -e m5stack-paper`.
 7. Describe hardware validation, memory impact and current limitations in the PR.
 

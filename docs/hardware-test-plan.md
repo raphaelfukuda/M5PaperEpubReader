@@ -217,3 +217,22 @@ virada e saia pelo menu para que ele seja regravado como versão 2 antes do test
     cancelamento. Execute novamente: livros válidos devem ser ignorados.
 11. Adicione um EPUB ao cartão e repita. Somente o livro novo ou modificado deve
     precisar de preparação completa.
+
+## Portal web de upload
+
+1. Reinicie e confirme no roteador ou consumo que o Wi-Fi começa desligado.
+2. No menu superior da biblioteca, ative o servidor, selecione uma rede WPA2 e
+   digite a senha. Confirme IP e `m5paper.local` na tela.
+3. Em celular e computador, abra a página, navegue por pastas, crie uma pasta e
+   confira pastas antes de arquivos, ordenação numérica e espaço livre.
+4. Envie sequencialmente dois EPUBs, incluindo um de aproximadamente 5 MiB e
+   `Memórias Póstumas.epub`. O segundo nome deve aparecer como
+   `Memorias_Postumas.epub`; nenhum reset ou watchdog pode ocorrer.
+5. Interrompa um upload no meio. Não pode existir `.epub` truncado; o `.part`
+   temporário deve ser removido quando o callback de aborto for recebido.
+6. Tente `/api/list?path=../` com `curl`; espere HTTP 400 e nenhum acesso fora
+   da raiz. Tente apagar pasta não vazia; espere HTTP 409.
+7. Desligue o toggle e confirme servidor, mDNS e rádio desligados. Repita sem
+   requisições e aguarde oito minutos para validar o timeout automático.
+8. Reabra a pasta afetada e confirme que o novo livro aparece e sua capa pode
+   ser preparada normalmente. Teste leitura e sleep depois do portal.
