@@ -42,7 +42,8 @@ class WebPortalService {
 
   explicit WebPortalService(fs::FS& filesystem);
   ~WebPortalService();
-  bool begin(const Hooks& hooks, const std::string& root = "/");
+  bool begin(const Hooks& hooks, const std::string& root = "/",
+             bool portuguese = false);
   void poll();
   void end();
   bool running() const { return running_; }
@@ -83,6 +84,7 @@ class WebPortalService {
   bool uploadGuardHeld_ = false;
   bool uploadFailed_ = false;
   bool uploadResponseSent_ = false;
+  bool portuguese_ = false;
   uint64_t expectedUploadBytes_ = 0;
   uint64_t writtenUploadBytes_ = 0;
   uint64_t lastReportedBytes_ = 0;

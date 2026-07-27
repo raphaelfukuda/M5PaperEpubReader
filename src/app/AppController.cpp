@@ -761,7 +761,8 @@ void AppController::startHttpPortal() {
         status.activity == PortalActivity::FilesChanged)
       portalLibraryChanged_ = true;
   };
-  if (!portal_.begin(hooks, "/")) {
+  if (!portal_.begin(hooks, "/",
+                     ui_strings::language() == UiLanguage::Portuguese)) {
     wifi_.stop();
     power_.disableRadio();
     portalFailureStartedMs_ = millis();

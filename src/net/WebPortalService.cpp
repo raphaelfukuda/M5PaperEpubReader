@@ -35,12 +35,14 @@ String jsonEscape(const char* value) {
 WebPortalService::WebPortalService(fs::FS& filesystem) : filesystem_(filesystem) {}
 WebPortalService::~WebPortalService() { end(); }
 
-bool WebPortalService::begin(const Hooks& hooks, const std::string& root) {
+bool WebPortalService::begin(const Hooks& hooks, const std::string& root,
+                             bool portuguese) {
   if (running_ || !hooks.acquireSd || !hooks.releaseSd) return false;
   std::string resolved;
   if (!portal_path::resolve("/", root, resolved)) return false;
   hooks_ = hooks;
   root_ = resolved;
+  portuguese_ = portuguese;
   const char* headers[] = {"X-Dest-Path", "X-File-Size"};
   server_.collectHeaders(headers, 2);
   server_.on("/", HTTP_GET, [this]() { routeRoot(); });
@@ -107,6 +109,9 @@ void WebPortalService::sendJsonError(int code, const std::string& message) {
 
 void WebPortalService::routeRoot() {
   lastRequestMs_ = millis();
+  server_.sendHeader("Set-Cookie",
+                     portuguese_ ? "m5epub_lang=pt; Path=/; SameSite=Strict"
+                                 : "m5epub_lang=en; Path=/; SameSite=Strict");
   server_.sendHeader("Cache-Control", "no-store");
   server_.send_P(200, "text/html; charset=utf-8", kPortalPage);
 }

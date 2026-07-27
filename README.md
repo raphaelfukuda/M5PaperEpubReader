@@ -83,6 +83,10 @@ library navigation.
 |---|---|
 | ![M5Paper showing the two-column EPUB cover library](docs/images/library-grid.jpg) | ![M5Paper preparing library covers with a progress bar](docs/images/library-cover-preparation.jpeg) |
 
+### Local EPUB upload portal
+
+![M5Paper local web portal for browsing folders and uploading EPUB files](docs/images/web-upload-portal.png)
+
 The interface text in screenshots may differ slightly from the latest build as
 labels are refined, while the illustrated library and progress flows remain the
 same.
