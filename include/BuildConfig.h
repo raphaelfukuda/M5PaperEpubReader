@@ -5,4 +5,4 @@
 #endif
 
 #define M5EPUB_APP_NAME "M5PaperEpubReader"
-#define M5EPUB_VERSION "0.4.1-touch-pages"
+#define M5EPUB_VERSION "1.0"

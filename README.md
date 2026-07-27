@@ -17,6 +17,8 @@ the last stable reading position.
 - Book, Sans and Compact font families selectable from the reading menu;
 - Kindle-style two-column library with EPUB titles and JPEG/PNG covers;
 - high-quality grayscale cover display in the reading menu and sleep screen;
+- high-quality inline JPEG/PNG images, proportionally fitted to reading pages
+  and prepared by the next-page prefetch when possible;
 - persistent reading position, font preference and safe “restart book” action;
 - automatic or menu-activated light sleep, touch/lever wake and position resume;
 - battery level in the top-right corner, sampled only during screen changes;
@@ -90,8 +92,9 @@ same.
 The reader targets textual, reflowable EPUB 2/3 books. DRM, JavaScript, audio,
 video, MathML, embedded fonts and fixed-layout EPUB are not supported. Semantic
 headings, paragraphs, lists, quotes, bold and italic markers participate in the
-text layout. Raster-image and basic-CSS discovery components exist, but complete
-inline image rendering and the full CSS cascade are not claimed as supported.
+text layout. Inline JPEG and PNG images are supported with high-quality E-Ink
+refresh. SVG, GIF, WebP, CSS background images and the full CSS cascade are not
+currently supported.
 
 ## Development
 
@@ -114,6 +117,8 @@ toque em `Language: English` para mudar para português. Coloque os livros na
 pasta `/Books` do cartão microSD e compile/grave usando os comandos acima.
 O tópico “How it works” descreve biblioteca, preparação incremental das capas,
 leitura, refresh E-Ink, persistência e funcionamento do modo de espera.
+Imagens JPEG e PNG dentro do livro são redimensionadas proporcionalmente e
+mostradas com atualização E-Ink de alta qualidade.
 
 Para enviar livros sem retirar o cartão, toque no topo da biblioteca, ative
 `Servidor de envio`, escolha a rede e digite a senha. Abra no celular ou
