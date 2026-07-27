@@ -32,6 +32,14 @@ struct Text {
   const char* sleepNow;
   const char* sleepMode;
   const char* wakeWithLever;
+  const char* loading;
+  const char* libraryMenu;
+  const char* prefetchCard;
+  const char* prefetchWarning;
+  const char* startPrefetch;
+  const char* scanningCard;
+  const char* indexingCovers;
+  const char* completed;
 };
 
 const Text& get();

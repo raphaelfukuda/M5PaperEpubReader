@@ -10,7 +10,9 @@
 - `hal/SdCardService`: montagem do SD e métricas.
 - `hal/SpiBusGuard`: propriedade lógica exclusiva entre SD e display.
 - `hal/PowerManager`: mantém Wi-Fi e Bluetooth desligados e configura light
-  sleep com wake-up pelos GPIOs 37/39 da alavanca.
+  sleep com wake-up pelos GPIOs 37/39 da alavanca e GPIO 36 do touch.
+- `storage/LibraryThumbnailCache`: catálogo persistente e miniaturas 4-bit
+  validadas por caminho, tamanho e data do EPUB.
 - `diagnostics`: logs e estruturas de métricas.
 - `ui`: contrato de views; telas funcionais começam na Fase 2.
 
@@ -35,9 +37,10 @@ margem de 64 KiB. A seleção é registrada por `M5EPUB_MEMORY`.
 
 Após dez minutos sem toque ou alavanca, ou por solicitação no menu, o estado de
 leitura é gravado atomicamente no microSD e o caminho do livro é marcado em NVS.
-O aviso de espera é submetido e concluído antes de o painel entrar em power-save.
-Qualquer extremo da alavanca acorda o ESP32. O painel sai do power-save e a
-página é redesenhada diretamente do estado mantido em RAM, sem aplicar o
+Uma capa ampliada é submetida com refresh completo antes de o painel dormir.
+Touch ou qualquer extremo da alavanca acorda o ESP32. O painel sai do power-save,
+executa outro refresh completo e a página é redesenhada diretamente do estado
+mantido em RAM, sem aplicar o
 acionamento de wake como zoom. A posição persistida no microSD continua sendo a
 proteção contra perda de energia durante a espera.
 
@@ -47,6 +50,19 @@ usa light sleep para aceitar separadamente GPIO 37 ou GPIO 39. Deep sleep só
 permitiria um único extremo via EXT0 ou exigiria ambos simultaneamente via
 EXT1 `ALL_LOW`.
 
+## Biblioteca e cache de capas
+
+A biblioteca carrega primeiro a página visual com `Carregando...` e só então
+processa os livros visíveis. Miniaturas proporcionais de 204×323 no máximo usam
+4 bits por pixel. Até 20 permanecem em um LRU na memória; o LRU é esvaziado ao
+abrir um livro. O cache persistente é incremental e a preparação completa do
+cartão percorre pastas cooperativamente, ignora entradas válidas e atualiza a
+barra de progresso a cada quatro segundos. O prefetch da página seguinte não
+provoca refresh isolado.
+
 ## Renderização
 
-O smoke test usa um canvas full-screen de 1 bit: aproximadamente 64.800 bytes para 540×960, alocado preferencialmente em PSRAM e reutilizado. Feedback de toque submete apenas a região do marcador e usa modo `epd_fast`; a tela inicial usa `epd_quality`. Páginas textuais usarão `epd_text`.
+Páginas textuais usam canvases front/back de 1 bit em PSRAM. Capas e menus com
+imagem usam um canvas de processamento de 8 bits, quantizado para os 16 níveis
+reais do painel. A política escolhe `epd_fast`/`epd_fastest`, regiões parciais e
+limpezas `epd_quality` conforme ritmo e orçamento de ghosting.

@@ -64,5 +64,9 @@ constexpr uint8_t kReadingStatePageSaveThreshold = 5;
 constexpr size_t kInternalHeapSafetyMargin = 64 * 1024;
   constexpr size_t kMaximumCoverBytes = 2 * 1024 * 1024;
   constexpr size_t kMaximumLibraryCoverBytes = 384 * 1024;
+  constexpr uint16_t kLibraryThumbnailWidth = 204;
+  constexpr uint16_t kLibraryThumbnailHeight = 323;
+  constexpr uint8_t kCardPrefetchScanBatchSize = 8;
+  constexpr uint32_t kCardPrefetchProgressRefreshMs = 4000;
 constexpr size_t kMaximumCoverDocumentBytes = 256 * 1024;
 }  // namespace app_config

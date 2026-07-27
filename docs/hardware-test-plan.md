@@ -208,3 +208,12 @@ virada e saia pelo menu para que ele seja regravado como versão 2 antes do test
    uma, especialmente nomes com á, é, í, ó, ú, ã, õ e ç.
 7. Cronometre quatro livros visíveis. Deve ocorrer apenas um refresh Quality
    depois da coleta das capas, e não um refresh completo por livro.
+8. Troque de página e confirme que a grade aparece primeiro com `Carregando...`.
+   Depois da preparação, as quatro capas devem surgir em um único refresh.
+9. Entre em uma subpasta a partir de uma página diferente da primeira. Toque em
+   `.. Voltar` e confirme retorno à mesma página da pasta anterior.
+10. No topo da biblioteca, abra o menu e escolha preparar as capas. Confira o
+    aviso, a fase de procura, o contador exato de capas, refresh periódico e
+    cancelamento. Execute novamente: livros válidos devem ser ignorados.
+11. Adicione um EPUB ao cartão e repita. Somente o livro novo ou modificado deve
+    precisar de preparação completa.

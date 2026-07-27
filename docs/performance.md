@@ -59,6 +59,16 @@ bytes de flash (36,0%). A biblioteca extrai apenas metadados/capa das quatro
 entradas visíveis e faz um único refresh de qualidade ao concluir. Qualidade e
 autonomia ainda podem variar entre painéis, cartões e baterias.
 
+## Cache incremental da biblioteca
+
+As capas são convertidas uma vez para miniaturas 4-bit de até 204×323 pixels
+(aproximadamente 33 KiB), gravadas atomicamente em `/.m5epub-cache` e validadas
+por caminho, tamanho e data de modificação. Um LRU mantém até 20 miniaturas na
+memória e é esvaziado ao abrir um livro. A preparação completa do cartão usa um
+arquivo temporário como fila, evitando manter todos os caminhos em RAM, e faz
+refresh de progresso a cada quatro segundos. O teste físico do usuário confirmou
+carregamento, navegação por pastas e restauração da página anterior.
+
 ## Fase 1 — instrumentação de refresh
 
 Concluída em 2026-07-26. O firmware agora separa reconhecimento do evento,

@@ -77,3 +77,69 @@ bool drawCoverImage(M5Canvas& canvas, const std::string& data,
   }
   return true;
 }
+
+bool createCoverThumbnail4(const std::string& data, const std::string& mediaType,
+                           uint16_t maximumWidth, uint16_t maximumHeight,
+                           uint16_t& width, uint16_t& height,
+                           std::string& packedPixels) {
+  width = height = 0;
+  packedPixels.clear();
+  uint32_t sourceWidth = 0, sourceHeight = 0;
+  if (data.empty() || maximumWidth == 0 || maximumHeight == 0 ||
+      !epub_content::imageDimensions(
+          reinterpret_cast<const uint8_t*>(data.data()), data.size(), mediaType,
+          sourceWidth, sourceHeight))
+    return false;
+  const float scale = std::min(1.0f, std::min(
+      static_cast<float>(maximumWidth) / sourceWidth,
+      static_cast<float>(maximumHeight) / sourceHeight));
+  width = static_cast<uint16_t>(std::max<uint32_t>(1, sourceWidth * scale));
+  height = static_cast<uint16_t>(std::max<uint32_t>(1, sourceHeight * scale));
+  M5Canvas decoded(&M5.Display);
+  decoded.setColorDepth(16);
+  decoded.setPsram(true);
+  if (!decoded.createSprite(width, height)) return false;
+  decoded.fillScreen(TFT_WHITE);
+  if (!decodeCover(decoded, data, mediaType, scale)) return false;
+  packedPixels.assign((static_cast<size_t>(width) * height + 1U) / 2U, '\0');
+  size_t pixelIndex = 0;
+  for (uint16_t py = 0; py < height; ++py) {
+    for (uint16_t px = 0; px < width; ++px, ++pixelIndex) {
+      const uint16_t color = decoded.readPixel(px, py);
+      const uint32_t red = ((color >> 11) & 0x1F) * 255U / 31U;
+      const uint32_t green = ((color >> 5) & 0x3F) * 255U / 63U;
+      const uint32_t blue = (color & 0x1F) * 255U / 31U;
+      const uint8_t gray4 = static_cast<uint8_t>(
+          ((red * 30U + green * 59U + blue * 11U) / 100U) >> 4);
+      uint8_t& packed = reinterpret_cast<uint8_t&>(packedPixels[pixelIndex / 2]);
+      if ((pixelIndex & 1U) == 0) packed = static_cast<uint8_t>(gray4 << 4);
+      else packed = static_cast<uint8_t>(packed | gray4);
+    }
+    if ((py & 15U) == 15U) yield();
+  }
+  return true;
+}
+
+bool drawCoverThumbnail4(M5Canvas& canvas, const std::string& packedPixels,
+                         uint16_t width, uint16_t height, int32_t x, int32_t y,
+                         int32_t maximumWidth, int32_t maximumHeight) {
+  if (width == 0 || height == 0 || maximumWidth <= 0 || maximumHeight <= 0 ||
+      packedPixels.size() != (static_cast<size_t>(width) * height + 1U) / 2U)
+    return false;
+  const int32_t left = x + (maximumWidth - width) / 2;
+  const int32_t top = y + (maximumHeight - height) / 2;
+  canvas.fillRect(x, y, maximumWidth, maximumHeight, TFT_WHITE);
+  size_t pixelIndex = 0;
+  for (uint16_t py = 0; py < height; ++py) {
+    for (uint16_t px = 0; px < width; ++px, ++pixelIndex) {
+      const uint8_t packed = static_cast<uint8_t>(packedPixels[pixelIndex / 2]);
+      const uint8_t gray4 = (pixelIndex & 1U) ? packed & 0x0F : packed >> 4;
+      const uint8_t gray = static_cast<uint8_t>(gray4 * 17U);
+      canvas.drawPixel(left + px, top + py,
+                       static_cast<uint32_t>(gray) << 16 |
+                       static_cast<uint32_t>(gray) << 8 | gray);
+    }
+    if ((py & 31U) == 31U) yield();
+  }
+  return true;
+}

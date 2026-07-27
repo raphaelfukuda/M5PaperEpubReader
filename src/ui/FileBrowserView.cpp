@@ -40,6 +40,10 @@ void FileBrowserView::previousPage() {
   if (page_ > 0) --page_;
 }
 
+void FileBrowserView::setPage(size_t page) {
+  page_ = std::min(page, pageCount() - 1);
+}
+
 int FileBrowserView::itemAt(int32_t x, int32_t y) const {
   if (y < app_config::kBrowserHeaderHeight ||
       y >= display_.height() - app_config::kBrowserFooterHeight ||
@@ -61,9 +65,14 @@ int FileBrowserView::navigationAt(int32_t x, int32_t y) const {
   return 0;
 }
 
+bool FileBrowserView::headerAt(int32_t y) const {
+  return y >= 0 && y < app_config::kBrowserHeaderHeight;
+}
+
 void FileBrowserView::clearPreviews() { previews_.clear(); }
 
 void FileBrowserView::setPreview(LibraryBookPreview preview) {
+  preview.useStamp = ++previewUseStamp_;
   for (auto& existing : previews_) {
     if (existing.path == preview.path) {
       existing = std::move(preview);
@@ -71,12 +80,44 @@ void FileBrowserView::setPreview(LibraryBookPreview preview) {
     }
   }
   previews_.push_back(std::move(preview));
+  constexpr size_t kMaximumRamPreviews = 20;
+  if (previews_.size() > kMaximumRamPreviews) {
+    const auto oldest = std::min_element(
+        previews_.begin(), previews_.end(),
+        [](const LibraryBookPreview& left, const LibraryBookPreview& right) {
+          return left.useStamp < right.useStamp;
+        });
+    previews_.erase(oldest);
+  }
+}
+
+bool FileBrowserView::hasPreview(const std::string& path) const {
+  return std::any_of(previews_.begin(), previews_.end(),
+                     [&path](const LibraryBookPreview& preview) {
+                       return preview.path == path;
+                     });
 }
 
 std::vector<FileEntry> FileBrowserView::visibleBooks() const {
   std::vector<FileEntry> result;
   if (!entries_) return result;
   const size_t first = page_ * itemsPerPage();
+  const size_t end = std::min(visibleItemCount(), first + itemsPerPage());
+  for (size_t logical = first; logical < end; ++logical) {
+    if (path_ != "/" && logical == 0) continue;
+    const size_t index = logical - (path_ == "/" ? 0 : 1);
+    if (index < entries_->size() && !(*entries_)[index].isDirectory)
+      result.push_back((*entries_)[index]);
+  }
+  return result;
+}
+
+std::vector<FileEntry> FileBrowserView::visibleAndNextBooks(
+    size_t& visibleCount) const {
+  std::vector<FileEntry> result = visibleBooks();
+  visibleCount = result.size();
+  if (!entries_ || page_ + 1 >= pageCount()) return result;
+  const size_t first = (page_ + 1) * itemsPerPage();
   const size_t end = std::min(visibleItemCount(), first + itemsPerPage());
   for (size_t logical = first; logical < end; ++logical) {
     if (path_ != "/" && logical == 0) continue;
@@ -144,12 +185,13 @@ void FileBrowserView::render() {
       canvas.drawRect(coverX, coverY, coverWidth, coverHeight, TFT_BLACK);
       bool coverDrawn = false;
       if (entry && !entry->isDirectory) {
-        for (const auto& preview : previews_) {
+        for (auto& preview : previews_) {
           if (preview.path == entry->fullPath) {
-            coverDrawn = drawCoverImage(canvas, preview.coverData,
-                                        preview.coverMediaType, coverX + 3,
-                                        coverY + 3, coverWidth - 6,
-                                        coverHeight - 6);
+            preview.useStamp = ++previewUseStamp_;
+            coverDrawn = drawCoverThumbnail4(
+                canvas, preview.thumbnailPixels, preview.thumbnailWidth,
+                preview.thumbnailHeight, coverX + 3, coverY + 3,
+                coverWidth - 6, coverHeight - 6);
             if (!preview.title.empty()) label = preview.title;
             break;
           }
@@ -158,8 +200,20 @@ void FileBrowserView::render() {
       if (!coverDrawn) {
         canvas.setTextDatum(middle_center);
         canvas.setFont(reader_font::forSize(24, ReaderFontFamily::Compact));
-        canvas.drawString(entry && entry->isDirectory ? "DIR" : "EPUB",
-                          left + cardWidth / 2, coverY + coverHeight / 2);
+        if (!entry) {
+          const int32_t centerX = left + cardWidth / 2;
+          const int32_t centerY = coverY + coverHeight / 2;
+          canvas.drawFastHLine(centerX - 48, centerY, 96, TFT_BLACK);
+          canvas.drawLine(centerX - 48, centerY, centerX - 10, centerY - 38,
+                          TFT_BLACK);
+          canvas.drawLine(centerX - 48, centerY, centerX - 10, centerY + 38,
+                          TFT_BLACK);
+          canvas.drawLine(centerX - 47, centerY + 1, centerX - 9,
+                          centerY + 39, TFT_BLACK);
+        } else {
+          canvas.drawString(entry->isDirectory ? "DIR" : "EPUB",
+                            left + cardWidth / 2, coverY + coverHeight / 2);
+        }
       }
       canvas.setFont(reader_font::forSize(16, ReaderFontFamily::Compact));
       canvas.setTextDatum(top_left);
@@ -179,7 +233,8 @@ void FileBrowserView::render() {
 
   canvas.setTextDatum(middle_center);
   char footer[64];
-  if (scanning_) snprintf(footer, sizeof(footer), "%s", text.scanning);
+  if (loading_) snprintf(footer, sizeof(footer), "%s", text.loading);
+  else if (scanning_) snprintf(footer, sizeof(footer), "%s", text.scanning);
   else if (truncated_) snprintf(footer, sizeof(footer), "%s", text.listTruncated);
   else snprintf(footer, sizeof(footer), "%s %u/%u", text.page, static_cast<unsigned>(page_ + 1),
                 static_cast<unsigned>(pageCount()));
@@ -244,4 +299,100 @@ void FileBrowserView::showBookError(const std::string& message) {
   M5Canvas& canvas = display_.canvas(); canvas.fillScreen(TFT_WHITE); canvas.setTextColor(TFT_BLACK, TFT_WHITE); canvas.setTextDatum(middle_center);
   canvas.setTextSize(2); canvas.drawString(ui_strings::get().invalidEpub, display_.width() / 2, 180); canvas.setTextSize(1);
   canvas.drawString(truncateToWidth(message, display_.width() - 40).c_str(), display_.width() / 2, 300); canvas.drawString(ui_strings::get().touchToReturn, display_.width() / 2, 420); display_.submitFull(RefreshIntent::FullQuality);
+}
+
+void FileBrowserView::renderLibraryMenu(bool confirmation) {
+  M5Canvas& canvas = display_.canvas();
+  canvas.fillScreen(TFT_WHITE);
+  canvas.setTextColor(TFT_BLACK, TFT_WHITE);
+  canvas.setFont(reader_font::forSize(24, ReaderFontFamily::Compact));
+  canvas.setTextSize(1);
+  canvas.setTextDatum(top_left);
+  const ui_strings::Text& text = ui_strings::get();
+  const std::string heading = confirmation ? text.prefetchCard : text.libraryMenu;
+  portuguese_text::draw(canvas, heading,
+      (display_.width() - portuguese_text::width(canvas, heading)) / 2, 35);
+  canvas.drawFastHLine(28, 85, display_.width() - 56, TFT_BLACK);
+  canvas.setFont(reader_font::forSize(16, ReaderFontFamily::Compact));
+  if (confirmation) {
+    portuguese_text::draw(canvas, text.prefetchWarning,
+        (display_.width() - portuguese_text::width(canvas, text.prefetchWarning)) / 2,
+        190);
+    const std::string detail1 = ui_strings::language() == UiLanguage::Portuguese
+        ? "As capas serão preparadas antecipadamente"
+        : "Covers will be prepared in advance";
+    const std::string detail2 = ui_strings::language() == UiLanguage::Portuguese
+        ? "para deixar a biblioteca mais rápida."
+        : "to make the library faster.";
+    portuguese_text::draw(canvas, detail1,
+        (display_.width() - portuguese_text::width(canvas, detail1)) / 2, 245);
+    portuguese_text::draw(canvas, detail2,
+        (display_.width() - portuguese_text::width(canvas, detail2)) / 2, 280);
+    canvas.drawRect(45, 390, display_.width() - 90, 82, TFT_BLACK);
+    portuguese_text::draw(canvas, text.startPrefetch,
+        (display_.width() - portuguese_text::width(canvas, text.startPrefetch)) / 2,
+        420);
+    canvas.drawRect(45, 545, display_.width() - 90, 82, TFT_BLACK);
+    portuguese_text::draw(canvas, text.cancel,
+        (display_.width() - portuguese_text::width(canvas, text.cancel)) / 2,
+        575);
+  } else {
+    canvas.drawRect(45, 170, display_.width() - 90, 100, TFT_BLACK);
+    portuguese_text::draw(canvas, text.prefetchCard,
+        (display_.width() - portuguese_text::width(canvas, text.prefetchCard)) / 2,
+        207);
+    canvas.drawRect(45, 700, display_.width() - 90, 82, TFT_BLACK);
+    portuguese_text::draw(canvas, text.closeMenu,
+        (display_.width() - portuguese_text::width(canvas, text.closeMenu)) / 2,
+        730);
+  }
+  display_.submitFull(RefreshIntent::FullQuality);
+}
+
+void FileBrowserView::renderPrefetchProgress(bool scanning, size_t completed,
+                                             size_t total, bool done,
+                                             bool truncated) {
+  M5Canvas& canvas = display_.canvas();
+  canvas.fillScreen(TFT_WHITE);
+  canvas.setTextColor(TFT_BLACK, TFT_WHITE);
+  canvas.setTextSize(1);
+  canvas.setFont(reader_font::forSize(24, ReaderFontFamily::Compact));
+  canvas.setTextDatum(top_left);
+  const ui_strings::Text& text = ui_strings::get();
+  const std::string heading = done ? text.completed : text.prefetchCard;
+  portuguese_text::draw(canvas, heading,
+      (display_.width() - portuguese_text::width(canvas, heading)) / 2, 70);
+  canvas.setFont(reader_font::forSize(16, ReaderFontFamily::Compact));
+  std::string phase = scanning ? text.scanningCard : text.indexingCovers;
+  if (done && truncated)
+    phase = ui_strings::language() == UiLanguage::Portuguese
+                ? "Concluído com limite de livros" : "Completed with book limit";
+  portuguese_text::draw(canvas, phase,
+      (display_.width() - portuguese_text::width(canvas, phase)) / 2, 210);
+  const int32_t barX = 45;
+  const int32_t barY = 315;
+  const int32_t barWidth = display_.width() - 90;
+  canvas.drawRect(barX, barY, barWidth, 52, TFT_BLACK);
+  uint32_t percent = 0;
+  if (done) percent = 100;
+  else if (scanning) percent = static_cast<uint32_t>((completed % 10) + 1);
+  else if (total != 0) percent = static_cast<uint32_t>((completed * 100ULL) / total);
+  const int32_t fill = static_cast<int32_t>((barWidth - 6) * percent / 100);
+  if (fill > 0) canvas.fillRect(barX + 3, barY + 3, fill, 46, TFT_BLACK);
+  char count[80];
+  if (scanning)
+    snprintf(count, sizeof(count), "%u EPUB", static_cast<unsigned>(completed));
+  else
+    snprintf(count, sizeof(count), "%u / %u  (%lu%%)",
+             static_cast<unsigned>(completed), static_cast<unsigned>(total),
+             static_cast<unsigned long>(percent));
+  canvas.setTextDatum(middle_center);
+  canvas.drawString(count, display_.width() / 2, 435);
+  canvas.drawRect(45, 700, display_.width() - 90, 82, TFT_BLACK);
+  const char* action = done ? text.closeMenu : text.cancel;
+  canvas.setTextDatum(top_left);
+  portuguese_text::draw(canvas, action,
+      (display_.width() - portuguese_text::width(canvas, action)) / 2, 730);
+  display_.submitFull(done ? RefreshIntent::FullQuality
+                           : RefreshIntent::InteractiveFeedback);
 }

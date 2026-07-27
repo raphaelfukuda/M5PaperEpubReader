@@ -12,7 +12,17 @@
 #include "diagnostics/Logger.h"
 #include "storage/PathUtils.h"
 
-namespace { constexpr const char* kReadingStatePath = "/.m5epub-reading-state"; }
+namespace {
+constexpr const char* kReadingStatePath = "/.m5epub-reading-state";
+constexpr const char* kCardPrefetchQueuePath = "/.m5epub-cache/card-prefetch.tmp";
+constexpr size_t kMaximumQueuedPathBytes = 2048;
+
+struct CardPrefetchRecord {
+  uint16_t pathLength = 0;
+  uint64_t size = 0;
+  uint64_t modifiedTime = 0;
+};
+}  // namespace
 
 void AppController::begin() {
   const uint32_t started = millis();
@@ -69,6 +79,10 @@ void AppController::tick() {
                                         : PendingReaderAction::DecreaseFont);
   if (centerPressed) requestManualRefresh();
   if (state_ == AppState::FileBrowser) handleBrowserEvent(event);
+  else if (state_ == AppState::LibraryMenu ||
+           state_ == AppState::LibraryPrefetchConfirm ||
+           state_ == AppState::LibraryPrefetch)
+    handleLibraryMenuEvent(event);
   else if (state_ == AppState::Reading) handleReaderEvent(event);
   else if (state_ == AppState::ReaderMenu) handleReaderMenuEvent(event);
   else if (state_ == AppState::ErrorDialog &&
@@ -135,6 +149,13 @@ void AppController::tick() {
     if (work == WorkResult::Completed || work == WorkResult::Failed) {
       browserView_.setModel(currentPath_, &scanner_.entries(), false,
                             scanner_.wasTruncated(), scanner_.error());
+      if (browserRestorePending_ && browserRestorePath_ == currentPath_) {
+        browserView_.setPage(browserRestorePage_);
+        browserRestorePending_ = false;
+        Serial.printf("M5EPUB_LIBRARY_NAV,status=restored,path=%s,page=%u\n",
+                      currentPath_.c_str(),
+                      static_cast<unsigned>(browserView_.page() + 1));
+      }
       browserDirty_ = true;
       scheduleLibraryPreviews();
       Serial.printf("Directory scan: path=%s entries=%u truncated=%s\n",
@@ -143,6 +164,7 @@ void AppController::tick() {
     }
   }
   serviceLibraryPreviews();
+  serviceCardPrefetch();
   if (browserDirty_ && M5.Display.displayBusy() == false) {
     browserView_.render();
     browserDirty_ = false;
@@ -555,10 +577,19 @@ bool AppController::loadBookCover(EpubParser& parser, size_t maximumBytes,
 
 void AppController::scheduleLibraryPreviews() {
   if (libraryParser_) libraryParser_->archive().close();
-  libraryPreviewQueue_ = browserView_.visibleBooks();
+  size_t visibleCount = 0;
+  const std::vector<FileEntry> candidates =
+      browserView_.visibleAndNextBooks(visibleCount);
+  libraryPreviewQueue_.clear();
+  libraryVisibleQueueCount_ = 0;
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    if (browserView_.hasPreview(candidates[i].fullPath)) continue;
+    libraryPreviewQueue_.push_back(candidates[i]);
+    if (i < visibleCount) ++libraryVisibleQueueCount_;
+  }
   libraryPreviewIndex_ = 0;
   libraryPreviewActive_ = false;
-  browserView_.clearPreviews();
+  browserView_.setLoading(libraryVisibleQueueCount_ != 0);
 }
 
 void AppController::serviceLibraryPreviews() {
@@ -567,6 +598,23 @@ void AppController::serviceLibraryPreviews() {
   if (libraryPreviewIndex_ >= libraryPreviewQueue_.size()) return;
   const FileEntry& entry = libraryPreviewQueue_[libraryPreviewIndex_];
   if (!libraryPreviewActive_) {
+    LibraryBookPreview cached;
+    cached.path = entry.fullPath;
+    if (libraryThumbnailCache_.load(
+            entry, cached.title, cached.thumbnailWidth,
+            cached.thumbnailHeight, cached.thumbnailPixels)) {
+      browserView_.setPreview(std::move(cached));
+      Serial.printf("M5EPUB_LIBRARY_CACHE,status=hit,path=%s\n",
+                    entry.fullPath.c_str());
+      ++libraryPreviewIndex_;
+      if (libraryPreviewIndex_ == libraryVisibleQueueCount_) {
+        browserView_.setLoading(false);
+        browserDirty_ = true;
+      }
+      return;
+    }
+    Serial.printf("M5EPUB_LIBRARY_CACHE,status=miss,path=%s\n",
+                  entry.fullPath.c_str());
     libraryParser_->start(entry.fullPath);
     libraryPreviewActive_ = true;
     Serial.printf("M5EPUB_LIBRARY_COVER,status=start,path=%s\n",
@@ -579,8 +627,24 @@ void AppController::serviceLibraryPreviews() {
     LibraryBookPreview preview;
     preview.path = entry.fullPath;
     preview.title = libraryParser_->book().title;
-    loadBookCover(*libraryParser_, app_config::kMaximumLibraryCoverBytes,
-                  preview.coverData, preview.coverMediaType);
+    std::string coverData;
+    std::string coverMediaType;
+    if (loadBookCover(*libraryParser_, app_config::kMaximumLibraryCoverBytes,
+                      coverData, coverMediaType)) {
+      createCoverThumbnail4(
+          coverData, coverMediaType, app_config::kLibraryThumbnailWidth,
+          app_config::kLibraryThumbnailHeight, preview.thumbnailWidth,
+          preview.thumbnailHeight, preview.thumbnailPixels);
+    }
+    const bool cacheSaved = libraryThumbnailCache_.save(
+        entry, preview.title, preview.thumbnailWidth, preview.thumbnailHeight,
+        preview.thumbnailPixels);
+    Serial.printf(
+        "M5EPUB_LIBRARY_CACHE,status=%s,path=%s,width=%u,height=%u,bytes=%u\n",
+        cacheSaved ? "saved" : "save_failed", entry.fullPath.c_str(),
+        static_cast<unsigned>(preview.thumbnailWidth),
+        static_cast<unsigned>(preview.thumbnailHeight),
+        static_cast<unsigned>(preview.thumbnailPixels.size()));
     browserView_.setPreview(std::move(preview));
   } else {
     Serial.printf("M5EPUB_LIBRARY_COVER,status=failed,path=%s,error=%s\n",
@@ -591,7 +655,243 @@ void AppController::serviceLibraryPreviews() {
   ++libraryPreviewIndex_;
   // Rendering each cover separately forces one slow quality refresh per book.
   // Keep the initial placeholders visible and present the completed page once.
-  if (libraryPreviewIndex_ >= libraryPreviewQueue_.size()) browserDirty_ = true;
+  if (libraryPreviewIndex_ == libraryVisibleQueueCount_) {
+    browserView_.setLoading(false);
+    browserDirty_ = true;
+  }
+}
+
+void AppController::handleLibraryMenuEvent(const AppEvent& event) {
+  if (event.type != AppEventType::Tap || M5.Display.displayBusy()) return;
+  if (state_ == AppState::LibraryMenu) {
+    if (event.y >= 170 && event.y < 270) {
+      state_ = AppState::LibraryPrefetchConfirm;
+      browserView_.renderLibraryMenu(true);
+    } else if (event.y >= 700 && event.y < 782) {
+      state_ = AppState::FileBrowser;
+      browserDirty_ = true;
+      scheduleLibraryPreviews();
+    }
+    return;
+  }
+  if (state_ == AppState::LibraryPrefetchConfirm) {
+    if (event.y >= 390 && event.y < 472) beginCardPrefetch();
+    else if (event.y >= 545 && event.y < 627) {
+      state_ = AppState::LibraryMenu;
+      browserView_.renderLibraryMenu(false);
+    }
+    return;
+  }
+  if (state_ == AppState::LibraryPrefetch && event.y >= 700 && event.y < 782)
+    finishCardPrefetch(cardPrefetchPhase_ != CardPrefetchPhase::Done);
+}
+
+void AppController::beginCardPrefetch() {
+  if (!libraryParser_) return;
+  libraryParser_->archive().close();
+  libraryPreviewActive_ = false;
+  cardPrefetchDirectory_.close();
+  cardPrefetchQueue_.close();
+  cardPrefetchDirectories_.clear();
+  cardPrefetchDirectories_.push_back("/");
+  cardPrefetchBook_ = {};
+  cardPrefetchBookActive_ = false;
+  cardPrefetchTruncated_ = false;
+  cardPrefetchTotal_ = 0;
+  cardPrefetchCompleted_ = 0;
+  cardPrefetchLastRenderMs_ = 0;
+  {
+    ScopedSpiBus bus(spiBus_, SpiBusOwner::SdCard);
+    if (!bus) return;
+    if (!SD.exists("/.m5epub-cache")) SD.mkdir("/.m5epub-cache");
+    if (SD.exists(kCardPrefetchQueuePath)) SD.remove(kCardPrefetchQueuePath);
+    cardPrefetchQueue_ = SD.open(kCardPrefetchQueuePath, FILE_WRITE);
+  }
+  if (!cardPrefetchQueue_) {
+    cardPrefetchPhase_ = CardPrefetchPhase::Done;
+    state_ = AppState::LibraryPrefetch;
+    cardPrefetchTruncated_ = true;
+    renderCardPrefetchProgress(true);
+    return;
+  }
+  cardPrefetchPhase_ = CardPrefetchPhase::Scanning;
+  state_ = AppState::LibraryPrefetch;
+  renderCardPrefetchProgress(true);
+  Serial.println("M5EPUB_CARD_PREFETCH,status=started");
+}
+
+void AppController::serviceCardPrefetch() {
+  if (state_ != AppState::LibraryPrefetch ||
+      cardPrefetchPhase_ == CardPrefetchPhase::Idle ||
+      cardPrefetchPhase_ == CardPrefetchPhase::Done ||
+      M5.Display.displayBusy())
+    return;
+
+  if (cardPrefetchPhase_ == CardPrefetchPhase::Scanning) {
+    bool scanFinished = false;
+    {
+      ScopedSpiBus bus(spiBus_, SpiBusOwner::SdCard);
+      if (!bus) return;
+      if (!cardPrefetchDirectory_) {
+        if (cardPrefetchDirectories_.empty()) {
+          scanFinished = true;
+        } else {
+          const std::string path = cardPrefetchDirectories_.back();
+          cardPrefetchDirectories_.pop_back();
+          cardPrefetchDirectory_ = SD.open(path.c_str(), FILE_READ);
+          if (!cardPrefetchDirectory_) {
+            cardPrefetchTruncated_ = true;
+            scanFinished = cardPrefetchDirectories_.empty();
+          }
+        }
+      }
+      for (uint8_t i = 0; !scanFinished && cardPrefetchDirectory_ &&
+                          i < app_config::kCardPrefetchScanBatchSize; ++i) {
+        fs::File file = cardPrefetchDirectory_.openNextFile();
+        if (!file) {
+          cardPrefetchDirectory_.close();
+          scanFinished = cardPrefetchDirectories_.empty();
+          break;
+        }
+        const std::string fullPath = file.path();
+        const std::string name = path_utils::fileName(fullPath);
+        if (!path_utils::isHiddenName(name)) {
+          if (file.isDirectory()) {
+            cardPrefetchDirectories_.push_back(fullPath);
+          } else if (path_utils::hasEpubExtension(name) &&
+                     fullPath.size() <= kMaximumQueuedPathBytes) {
+            CardPrefetchRecord record;
+            record.pathLength = static_cast<uint16_t>(fullPath.size());
+            record.size = file.size();
+            record.modifiedTime = static_cast<uint64_t>(file.getLastWrite());
+            const bool queued =
+                cardPrefetchQueue_.write(
+                    reinterpret_cast<const uint8_t*>(&record), sizeof(record)) ==
+                    sizeof(record) &&
+                cardPrefetchQueue_.write(
+                    reinterpret_cast<const uint8_t*>(fullPath.data()),
+                    fullPath.size()) == fullPath.size();
+            if (queued) ++cardPrefetchTotal_;
+            else cardPrefetchTruncated_ = true;
+          }
+        }
+        file.close();
+      }
+      if (scanFinished) {
+        cardPrefetchDirectory_.close();
+        cardPrefetchQueue_.close();
+        cardPrefetchQueue_ = SD.open(kCardPrefetchQueuePath, FILE_READ);
+        cardPrefetchPhase_ = CardPrefetchPhase::Indexing;
+      }
+    }
+    renderCardPrefetchProgress();
+    return;
+  }
+
+  if (!cardPrefetchBookActive_) {
+    if (cardPrefetchCompleted_ >= cardPrefetchTotal_) {
+      cardPrefetchPhase_ = CardPrefetchPhase::Done;
+      cardPrefetchQueue_.close();
+      {
+        ScopedSpiBus bus(spiBus_, SpiBusOwner::SdCard);
+        if (bus && SD.exists(kCardPrefetchQueuePath))
+          SD.remove(kCardPrefetchQueuePath);
+      }
+      renderCardPrefetchProgress(true);
+      Serial.printf("M5EPUB_CARD_PREFETCH,status=completed,books=%u\n",
+                    static_cast<unsigned>(cardPrefetchCompleted_));
+      return;
+    }
+    CardPrefetchRecord record;
+    std::string path;
+    {
+      ScopedSpiBus bus(spiBus_, SpiBusOwner::SdCard);
+      if (!bus || !cardPrefetchQueue_ ||
+          cardPrefetchQueue_.read(reinterpret_cast<uint8_t*>(&record),
+                                  sizeof(record)) != sizeof(record) ||
+          record.pathLength == 0 || record.pathLength > kMaximumQueuedPathBytes) {
+        cardPrefetchTruncated_ = true;
+        cardPrefetchCompleted_ = cardPrefetchTotal_;
+        return;
+      }
+      path.resize(record.pathLength);
+      if (cardPrefetchQueue_.read(reinterpret_cast<uint8_t*>(&path[0]),
+                                  path.size()) != path.size()) {
+        cardPrefetchTruncated_ = true;
+        cardPrefetchCompleted_ = cardPrefetchTotal_;
+        return;
+      }
+    }
+    cardPrefetchBook_ = FileEntry(path_utils::fileName(path), path, false,
+                                  record.size, record.modifiedTime);
+    std::string title, pixels;
+    uint16_t width = 0, height = 0;
+    if (libraryThumbnailCache_.load(cardPrefetchBook_, title, width, height,
+                                    pixels)) {
+      ++cardPrefetchCompleted_;
+      renderCardPrefetchProgress();
+      return;
+    }
+    libraryParser_->start(cardPrefetchBook_.fullPath);
+    cardPrefetchBookActive_ = true;
+  }
+
+  const WorkResult result = libraryParser_->processNextChunk();
+  const bool metadataReady = libraryParser_->metadataReady();
+  if (result == WorkResult::MoreWork && !metadataReady) return;
+  if (result == WorkResult::Completed || metadataReady) {
+    std::string coverData, coverMediaType, pixels;
+    uint16_t width = 0, height = 0;
+    if (loadBookCover(*libraryParser_, app_config::kMaximumLibraryCoverBytes,
+                      coverData, coverMediaType))
+      createCoverThumbnail4(
+          coverData, coverMediaType, app_config::kLibraryThumbnailWidth,
+          app_config::kLibraryThumbnailHeight, width, height, pixels);
+    libraryThumbnailCache_.save(cardPrefetchBook_, libraryParser_->book().title,
+                                width, height, pixels);
+  } else {
+    cardPrefetchTruncated_ = true;
+  }
+  libraryParser_->archive().close();
+  cardPrefetchBookActive_ = false;
+  ++cardPrefetchCompleted_;
+  renderCardPrefetchProgress();
+}
+
+void AppController::renderCardPrefetchProgress(bool force) {
+  const uint32_t now = millis();
+  if (!force && now - cardPrefetchLastRenderMs_ <
+                    app_config::kCardPrefetchProgressRefreshMs)
+    return;
+  cardPrefetchLastRenderMs_ = now;
+  browserView_.renderPrefetchProgress(
+      cardPrefetchPhase_ == CardPrefetchPhase::Scanning,
+      cardPrefetchPhase_ == CardPrefetchPhase::Scanning ? cardPrefetchTotal_
+                                                        : cardPrefetchCompleted_,
+      cardPrefetchTotal_, cardPrefetchPhase_ == CardPrefetchPhase::Done,
+      cardPrefetchTruncated_);
+}
+
+void AppController::finishCardPrefetch(bool cancelled) {
+  if (libraryParser_) libraryParser_->archive().close();
+  cardPrefetchDirectory_.close();
+  cardPrefetchQueue_.close();
+  cardPrefetchDirectories_.clear();
+  cardPrefetchBookActive_ = false;
+  {
+    ScopedSpiBus bus(spiBus_, SpiBusOwner::SdCard);
+    if (bus && SD.exists(kCardPrefetchQueuePath)) SD.remove(kCardPrefetchQueuePath);
+  }
+  Serial.printf("M5EPUB_CARD_PREFETCH,status=%s,completed=%u,total=%u\n",
+                cancelled ? "cancelled" : "closed",
+                static_cast<unsigned>(cardPrefetchCompleted_),
+                static_cast<unsigned>(cardPrefetchTotal_));
+  cardPrefetchPhase_ = CardPrefetchPhase::Idle;
+  state_ = AppState::FileBrowser;
+  browserView_.setModel(currentPath_, &scanner_.entries(), false,
+                        scanner_.wasTruncated(), scanner_.error());
+  browserDirty_ = true;
+  scheduleLibraryPreviews();
 }
 
 void AppController::markReadingStateDirty(bool pageChanged) {
@@ -682,7 +982,6 @@ void AppController::startDirectory(const std::string& path) {
   if (libraryParser_) libraryParser_->archive().close();
   libraryPreviewQueue_.clear();
   libraryPreviewActive_ = false;
-  browserView_.clearPreviews();
   if (!scanner_.start(currentPath_)) {
     browserView_.setModel(currentPath_, &scanner_.entries(), false, false,
                           scanner_.error());
@@ -720,6 +1019,13 @@ void AppController::handleBrowserEvent(const AppEvent& event) {
     return;
   }
   if (event.type != AppEventType::Tap) return;
+  if (browserView_.headerAt(event.y)) {
+    if (libraryParser_) libraryParser_->archive().close();
+    libraryPreviewActive_ = false;
+    state_ = AppState::LibraryMenu;
+    browserView_.renderLibraryMenu(false);
+    return;
+  }
   const int navigation = browserView_.navigationAt(event.x, event.y);
   if (navigation != 0) {
     const size_t previous = browserView_.page();
@@ -733,17 +1039,31 @@ void AppController::handleBrowserEvent(const AppEvent& event) {
   if (logicalIndex < 0) return;
   browserView_.showSelection(event.x, event.y);
   if (currentPath_ != "/" && logicalIndex == 0) {
-    startDirectory(path_utils::parent(currentPath_));
+    const std::string parentPath = path_utils::parent(currentPath_);
+    browserRestorePending_ = false;
+    if (!browserHistory_.empty() && browserHistory_.back().path == parentPath) {
+      browserRestorePath_ = browserHistory_.back().path;
+      browserRestorePage_ = browserHistory_.back().page;
+      browserRestorePending_ = true;
+      browserHistory_.pop_back();
+    }
+    startDirectory(parentPath);
     return;
   }
   const size_t entryIndex = static_cast<size_t>(logicalIndex) - (currentPath_ == "/" ? 0 : 1);
   if (entryIndex >= scanner_.entries().size()) return;
   const FileEntry& entry = scanner_.entries()[entryIndex];
   if (entry.isDirectory) {
+    BrowserHistoryEntry history;
+    history.path = currentPath_;
+    history.page = browserView_.page();
+    browserHistory_.push_back(history);
+    browserRestorePending_ = false;
     startDirectory(entry.fullPath);
   } else {
     if (libraryParser_) libraryParser_->archive().close();
     libraryPreviewActive_ = false;
+    browserView_.clearPreviews();
     Serial.printf("EPUB selected: %s (%llu bytes)\n", entry.fullPath.c_str(), entry.size);
     browserView_.showBookSelected(entry); epubParser_.start(entry.fullPath);
     bookOpenStartedMs_ = millis(); measuringBookOpen_ = true;

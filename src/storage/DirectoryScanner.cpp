@@ -40,7 +40,8 @@ WorkResult DirectoryScanner::processNextBatch() {
     const bool directory = file.isDirectory();
     if (!path_utils::isHiddenName(name) && (directory || path_utils::hasEpubExtension(name))) {
       if (entries_.size() < app_config::kMaxDirectoryEntries) {
-        entries_.push_back({name, fullPath, directory, directory ? 0 : file.size()});
+        entries_.push_back({name, fullPath, directory, directory ? 0 : file.size(),
+                            static_cast<uint64_t>(file.getLastWrite())});
       } else {
         truncated_ = true;
       }
@@ -58,4 +59,3 @@ void DirectoryScanner::finish() {
     return path_utils::compareCaseInsensitive(a.name, b.name) < 0;
   });
 }
-

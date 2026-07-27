@@ -18,6 +18,7 @@
 #include "diagnostics/PerformanceMetrics.h"
 #include "input/PendingReaderActions.h"
 #include "storage/PersistPolicy.h"
+#include "storage/LibraryThumbnailCache.h"
 #include "AppConfig.h"
 
 class AppController {
@@ -32,6 +33,7 @@ class AppController {
   DisplayManager display_{spiBus_};
   SdCardService sdCard_{spiBus_};
   ReadingStateStore readingStateStore_{SD};
+  LibraryThumbnailCache libraryThumbnailCache_{SD, spiBus_};
   TouchController touch_;
   PowerManager power_;
   Preferences preferences_;
@@ -67,6 +69,26 @@ class AppController {
   std::vector<FileEntry> libraryPreviewQueue_;
   size_t libraryPreviewIndex_ = 0;
   bool libraryPreviewActive_ = false;
+  size_t libraryVisibleQueueCount_ = 0;
+  enum class CardPrefetchPhase : uint8_t { Idle, Scanning, Indexing, Done };
+  CardPrefetchPhase cardPrefetchPhase_ = CardPrefetchPhase::Idle;
+  std::vector<std::string> cardPrefetchDirectories_;
+  fs::File cardPrefetchDirectory_;
+  fs::File cardPrefetchQueue_;
+  FileEntry cardPrefetchBook_;
+  bool cardPrefetchBookActive_ = false;
+  bool cardPrefetchTruncated_ = false;
+  size_t cardPrefetchTotal_ = 0;
+  size_t cardPrefetchCompleted_ = 0;
+  uint32_t cardPrefetchLastRenderMs_ = 0;
+  struct BrowserHistoryEntry {
+    std::string path;
+    size_t page = 0;
+  };
+  std::vector<BrowserHistoryEntry> browserHistory_;
+  bool browserRestorePending_ = false;
+  std::string browserRestorePath_;
+  size_t browserRestorePage_ = 0;
 
   void startDirectory(const std::string& path);
   void handleBrowserEvent(const AppEvent& event);
@@ -83,6 +105,11 @@ class AppController {
                      std::string& data, std::string& mediaType);
   void scheduleLibraryPreviews();
   void serviceLibraryPreviews();
+  void handleLibraryMenuEvent(const AppEvent& event);
+  void beginCardPrefetch();
+  void serviceCardPrefetch();
+  void finishCardPrefetch(bool cancelled);
+  void renderCardPrefetchProgress(bool force = false);
   void markReadingStateDirty(bool pageChanged = true);
   void requestForcedPersist(PersistReason reason);
   bool persistReadingState(PersistReason reason, bool forced = false);

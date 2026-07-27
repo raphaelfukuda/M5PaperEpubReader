@@ -48,6 +48,27 @@ exist, the browser starts at the card root. Open the reading menu by tapping the
 top band. The menu includes language selection, table of contents, restart and
 library navigation.
 
+## How it works
+
+- **Library:** scans folders cooperatively and shows two books per row. Page
+  arrows are available at the bottom, and returning from a subfolder restores
+  the previous folder page.
+- **Cover preparation:** creates 4-bit thumbnails matching the panel's 16 gray
+  levels. Entries are validated by path, file size and modification time, kept
+  in a 20-item PSRAM LRU and persisted under `/.m5epub-cache` on the microSD.
+- **Prepare library covers:** the library's top menu can scan the entire card
+  and prepare missing or changed covers. It is incremental, cancellable and
+  periodically displays progress. Normal browsing also prepares missing covers.
+- **Reading:** EPUB metadata and XHTML are processed in bounded chunks. The
+  current position, page history, font size and family are persisted so a book
+  can resume and navigate backward after reopening.
+- **E-Ink refresh:** normal and rapid turns use adaptive fast waveforms, ready
+  pages use front/back buffers, and periodic full-quality refreshes limit
+  ghosting. Entering and leaving sleep always performs a full-quality refresh.
+- **Power:** after ten minutes without interaction, or from the reading menu,
+  the ESP32 enters light sleep. Touch or either end of the font lever wakes it
+  without changing the saved reading position.
+
 ## Supported content
 
 The reader targets textual, reflowable EPUB 2/3 books. DRM, JavaScript, audio,
@@ -75,6 +96,8 @@ Firmware open source e offline para leitura incremental de EPUB 2/3 no
 **M5Stack M5Paper original**. A interface inicia em inglês; no menu de leitura,
 toque em `Language: English` para mudar para português. Coloque os livros na
 pasta `/Books` do cartão microSD e compile/grave usando os comandos acima.
+O tópico “How it works” descreve biblioteca, preparação incremental das capas,
+leitura, refresh E-Ink, persistência e funcionamento do modo de espera.
 
 ## License
 
